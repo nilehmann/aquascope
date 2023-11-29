@@ -192,10 +192,11 @@ window.initAquascopeBlocks = (root: HTMLElement) => {
     if (!initialCode) throw new Error("Missing data-code attribute");
 
     let extraInfo = document.createElement("div");
+    let enableExtraInfo = false;
     elem.appendChild(extraInfo);
     ReactDOM.createRoot(extraInfo).render(
       <CodeContext.Provider value={initialCode}>
-        <ExtraInfo />
+        {enableExtraInfo ? <ExtraInfo /> : null}
       </CodeContext.Provider>
     );
 
@@ -203,15 +204,24 @@ window.initAquascopeBlocks = (root: HTMLElement) => {
       ? new URL(elem.dataset.serverUrl)
       : undefined;
 
+//    let shouldFailHtml = `
+//  <div class="ferris-container">
+//    <a href="ch00-00-introduction.html#ferris" target="_blank">
+//      <img
+//        src="img/ferris/does_not_compile.svg"
+//        title="This code does not compile!"
+//        class="ferris ferris-large"
+//      />
+//    </a>
+//  </div>
+//  `;
     let shouldFailHtml = `
   <div class="ferris-container">
-    <a href="ch00-00-introduction.html#ferris" target="_blank">
-      <img
-        src="img/ferris/does_not_compile.svg"
-        title="This code does not compile!"
-        class="ferris ferris-large"
-      />
-    </a>
+    <img
+      src="img/ferris/does_not_compile.svg"
+      title="This code does not compile!"
+      class="ferris ferris-large"
+    />
   </div>
   `;
 

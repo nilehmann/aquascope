@@ -456,12 +456,16 @@ export function makeStepDecorations(
   view: EditorView,
   facts: AnalysisFacts,
   stateSteps: PermissionsLineDisplay[],
-  annotations?: StepperAnnotations
+  annotations?: StepperAnnotations,
+  currentStep?: number
 ): Range<Decoration>[] {
-  return stateSteps.map(step =>
-    Decoration.widget({
-      widget: new PermissionStepLineWidget(view, step, facts, annotations),
-      side: 1,
-    }).range(linecolToPosition(stepLocation(step), view.state.doc))
-  );
+  return stateSteps
+    .sort((a, b) => a.location.start.line - b.location.start.line)
+    .slice(0, currentStep ?? stateSteps.length)
+    .map(step =>
+      Decoration.widget({
+        widget: new PermissionStepLineWidget(view, step, facts, annotations),
+        side: 1,
+      }).range(linecolToPosition(stepLocation(step), view.state.doc))
+    );
 }

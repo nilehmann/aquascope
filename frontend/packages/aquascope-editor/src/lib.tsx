@@ -64,7 +64,7 @@ fn main() {
 let readOnly = new Compartment();
 let mainKeybinding = new Compartment();
 
-type ButtonName = "copy" | "eye";
+type ButtonName = "copy" | "eye" | "step-forward" | "step-backward" | "run";
 
 let CopyButton = ({ view }: { view: EditorView }) => (
   <button
@@ -91,6 +91,39 @@ let HideButton = ({ container }: { container: HTMLDivElement }) => {
   );
 };
 
+let StepForwardButton = ({ onClick }: { onClick?: () => void }) => {
+  return (
+    <button className="cm-button step-next" onClick={() => onClick?.()}>
+      <i className="fa fa-step-forward" />
+    </button>
+  );
+};
+
+let StepBackwardButton = ({ onClick }: { onClick?: () => void }) => {
+  return (
+    <button className="cm-button step-back" onClick={() => onClick?.()}>
+      <i className="fa fa-step-backward" />
+    </button>
+  );
+};
+
+let RunButton = ({
+  container,
+  view,
+}: {
+  container: HTMLDivElement;
+  view: EditorView;
+}) => {
+  return (
+    <button
+      className="cm-button"
+      onClick={() => run_rust_code(container, view)}
+    >
+      <i className="fa fa-play" />
+    </button>
+  );
+};
+
 let resetMarkedRangesOnEdit = EditorView.updateListener.of(
   (upd: ViewUpdate) => {
     if (upd.docChanged) {
@@ -109,16 +142,25 @@ interface CommonConfig {
   shouldFail?: boolean;
   stepper?: any;
   boundaries?: any;
+  stepperControls?: any;
+  run?: any;
+  interpreterControls?: any;
 }
 
 export class Editor {
   private view: EditorView;
   private interpreterContainer: HTMLDivElement;
+  private dom: HTMLDivElement;
   private editorContainer: HTMLDivElement;
+  private resultContainer: HTMLDivElement;
   private permissionsDecos?: PermissionsDecorations;
   private metaContainer: ReactDOM.Root;
   private buttons: Set<ButtonName>;
   private shouldFail: boolean = false;
+  private currentStep?: number;
+  private annotations?: AquascopeAnnotations;
+  private results: AnalysisOutput[] = [];
+  private config?: CommonConfig & object;
 
   public constructor(
     dom: HTMLDivElement,
@@ -163,12 +205,17 @@ export class Editor {
     this.metaContainer = ReactDOM.createRoot(buttonContainer);
     this.renderMeta();
 
+    this.dom = dom;
+
     this.editorContainer.appendChild(buttonContainer);
 
     this.interpreterContainer = document.createElement("div");
+    this.resultContainer = document.createElement("div");
+    this.resultContainer.className = "result-container";
 
-    dom.appendChild(this.editorContainer);
-    dom.appendChild(this.interpreterContainer);
+    this.dom.appendChild(this.editorContainer);
+    this.dom.appendChild(this.interpreterContainer);
+    this.dom.appendChild(this.resultContainer);
   }
 
   renderMeta() {
@@ -180,6 +227,31 @@ export class Editor {
               <CopyButton key={i} view={this.view} />
             ) : button == "eye" ? (
               <HideButton key={i} container={this.editorContainer} />
+            ) : button == "step-forward" ? (
+              <StepForwardButton
+                key={i}
+                onClick={() => {
+                  if (
+                    this.currentStep === undefined ||
+                    this.currentStep === this.maxPermissionSteps()
+                  )
+                    return;
+                  this.currentStep += 1;
+                  this.reRenderPermissions();
+                }}
+              />
+            ) : button == "step-backward" ? (
+              <StepBackwardButton
+                key={i}
+                onClick={() => {
+                  if (this.currentStep === undefined || this.currentStep === 0)
+                    return;
+                  this.currentStep -= 1;
+                  this.reRenderPermissions();
+                }}
+              />
+            ) : button == "run" ? (
+              <RunButton container={this.resultContainer} view={this.view} />
             ) : null
           )}
         </div>
@@ -220,7 +292,7 @@ export class Editor {
   public async renderPermissions(cfg?: PermissionsCfg) {
     // TODO: the permissions Decos are no longer removed on update
     // so we have to recompute every time.
-    if (true || this.permissionsDecos === undefined) {
+    if (this.permissionsDecos === undefined) {
       await this.renderOperation("permissions", {
         config: cfg,
       });
@@ -310,6 +382,16 @@ export class Editor {
       this.buttons.add("eye");
     }
 
+    if (config?.stepperControls === "true") {
+      this.buttons.add("step-backward");
+      this.buttons.add("step-forward");
+      this.currentStep = 0;
+    }
+
+    if (config?.run === "true") {
+      this.buttons.add("run");
+    }
+
     if (config?.shouldFail) {
       this.shouldFail = true;
     }
@@ -346,13 +428,63 @@ export class Editor {
           this.reportStdErr(res.Err);
         }
       }
-
-      this.permissionsDecos = makePermissionsDecorations(
-        this.view,
-        results,
-        annotations
-      );
-      renderPermissions(this.view, this.permissionsDecos, config);
+      this.annotations = annotations;
+      this.results = results;
+      this.config = config;
+      this.reRenderPermissions();
     }
   }
+
+  reRenderPermissions() {
+    this.permissionsDecos = makePermissionsDecorations(
+      this.view,
+      this.results,
+      this.annotations,
+      this.currentStep
+    );
+    renderPermissions(this.view, this.permissionsDecos, this.config);
+  }
+
+  maxPermissionSteps(): number {
+    return Math.max(...this.results.map(result => result.steps.length));
+  }
+}
+
+function run_rust_code(resultContainer: HTMLDivElement, view: EditorView) {
+  resultContainer.innerHTML =
+    '<pre><code class="result hljs language-bash">Running...</code></pre>';
+  let resultCode: any = resultContainer.querySelector(".result");
+  if (!resultCode) {
+    return;
+  }
+  let text = view.state.doc.toJSON().join("\n");
+  var params = {
+    version: "stable",
+    optimize: "0",
+    code: text,
+    edition: "2021",
+  };
+
+  fetch("https://play.rust-lang.org/evaluate.json", {
+    headers: {
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+    mode: "cors",
+    body: JSON.stringify(params),
+  })
+    .then((response: any) => response.json())
+    .then((response: any) => {
+      if (response.result.trim() === "") {
+        resultCode.innerText = "No output";
+        resultCode.classList.add("result-no-output");
+      } else {
+        resultCode.innerHTML = response.result;
+        resultCode.classList.remove("result-no-output");
+      }
+    })
+    .catch(
+      error =>
+        (resultCode.innerText = "Playground Communication: " + error.message)
+    );
 }
