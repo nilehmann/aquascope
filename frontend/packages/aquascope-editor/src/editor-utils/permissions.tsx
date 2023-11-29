@@ -25,7 +25,8 @@ export interface PermissionsDecorations {
 export function makePermissionsDecorations(
   view: EditorView,
   results: AnalysisOutput[],
-  annotations?: AquascopeAnnotations
+  annotations?: AquascopeAnnotations,
+  currentStep?: number
 ): PermissionsDecorations {
   let stepDecos: Range<Decoration>[][] = [];
   let boundaryDecos: Range<Decoration>[][] = [];
@@ -40,7 +41,13 @@ export function makePermissionsDecorations(
       res.boundaries,
       annotations?.boundaries
     );
-    let ss = makeStepDecorations(view, facts, res.steps, annotations?.stepper);
+    let ss = makeStepDecorations(
+      view,
+      facts,
+      res.steps,
+      annotations?.stepper,
+      currentStep
+    );
     boundaryDecos.push(bs);
     stepDecos.push(ss);
     actionDecos.push(actionFacts);

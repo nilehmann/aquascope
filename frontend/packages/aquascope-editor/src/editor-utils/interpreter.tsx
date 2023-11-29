@@ -44,6 +44,7 @@ export interface InterpreterConfig {
   horizontal?: boolean;
   concreteTypes?: boolean;
   hideCode?: boolean;
+  interpreterControls?: boolean;
 }
 
 let ConfigContext = React.createContext<InterpreterConfig>({});
@@ -674,11 +675,13 @@ let renderArrows = (
 let StepView = ({
   step,
   index,
-  containerRef
+  containerRef,
+  visible
 }: {
   step: MStep<CharRange>;
   index: number;
   containerRef: React.RefObject<HTMLDivElement>;
+  visible: boolean;
 }) => {
   let stepContainerRef = useRef<HTMLDivElement>(null);
   let arrowContainerRef = useRef<HTMLDivElement>(null);
@@ -686,9 +689,13 @@ let StepView = ({
   renderArrows(containerRef, stepContainerRef, arrowContainerRef);
 
   return (
-    <div className="step">
+    <div className="step" style={{ opacity: visible ? "1" : "0" }}>
       <div className="step-header">
-        <StepMarkerView index={index} fail={error !== undefined} />
+        <StepMarkerView
+          index={index}
+          fail={error !== undefined}
+          visible={visible}
+        />
         {error !== undefined ? (
           <span className="undefined-behavior">
             undefined behavior:{" "}
@@ -715,20 +722,25 @@ let StepView = ({
 
 let InterpreterView = ({
   trace,
-  config
+  config,
+  onStepUpdated
 }: {
   trace: MTrace<CharRange>;
   config?: InterpreterConfig;
+  onStepUpdated?: (step: number) => void;
 }) => {
   let ref = useRef<HTMLDivElement>(null);
   let [concreteTypes, setConcreteTypes] = useState(
     config?.concreteTypes ?? false
   );
   let [buttonVisible, setButtonVisible] = useState(false);
+  let [currentStep, setCurrentStep] = useState(0);
 
   let flexDirection: CSSProperties["flexDirection"] = config?.horizontal
     ? "row"
     : "column";
+
+  let controls = config?.interpreterControls || false;
 
   return (
     <ConfigContext.Provider value={{ ...config, concreteTypes: concreteTypes }}>
@@ -739,14 +751,43 @@ let InterpreterView = ({
         onMouseEnter={() => setButtonVisible(true)}
         onMouseLeave={() => setButtonVisible(false)}
       >
-        <button
-          type="button"
-          className={classNames("concrete-types", { active: concreteTypes })}
-          onClick={() => setConcreteTypes(!concreteTypes)}
-          style={{ opacity: buttonVisible ? "1" : "0" }}
-        >
-          <i className="fa fa-binoculars" />
-        </button>
+        <div className="actions" style={{ opacity: buttonVisible ? "1" : "0" }}>
+          {controls ? (
+            <button
+              type="button"
+              className="step-button"
+              onClick={() => {
+                if (currentStep === 0) return;
+                let nextStep = currentStep - 1;
+                setCurrentStep(nextStep);
+                onStepUpdated?.(nextStep);
+              }}
+            >
+              <i className="fa fa-step-backward step-back" />
+            </button>
+          ) : null}
+          {controls ? (
+            <button
+              type="button"
+              className="step-button"
+              onClick={() => {
+                if (currentStep === trace.steps.length) return;
+                let nextStep = currentStep + 1;
+                setCurrentStep(nextStep);
+                onStepUpdated?.(nextStep);
+              }}
+            >
+              <i className="fa fa-step-forward step-next" />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className={classNames("concrete-types", { active: concreteTypes })}
+            onClick={() => setConcreteTypes(!concreteTypes)}
+          >
+            <i className="fa fa-binoculars" />
+          </button>
+        </div>
         {trace.steps.map((step, i) => {
           let error =
             i === trace.steps.length - 1 && trace.result.type === "Error"
@@ -754,7 +795,12 @@ let InterpreterView = ({
               : undefined;
           return (
             <ErrorContext.Provider key={i} value={error}>
-              <StepView index={i} step={step} containerRef={ref} />
+              <StepView
+                index={i}
+                step={step}
+                containerRef={ref}
+                visible={!controls || i < currentStep}
+              />
             </ErrorContext.Provider>
           );
         })}
@@ -792,9 +838,20 @@ let filterSteps = (
   ];
 };
 
-let StepMarkerView = ({ index, fail }: { index: number; fail: boolean }) => {
+let StepMarkerView = ({
+  index,
+  fail,
+  visible
+}: {
+  index: number;
+  fail: boolean;
+  visible: boolean;
+}) => {
   return (
-    <span className={classNames("step-marker", { fail })}>
+    <span
+      className={classNames("step-marker", { fail })}
+      style={{ opacity: visible ? "1" : "0" }}
+    >
       <span>L{index + 1}</span>
     </span>
   );
@@ -803,7 +860,8 @@ let StepMarkerView = ({ index, fail }: { index: number; fail: boolean }) => {
 class StepMarkerWidget extends WidgetType {
   constructor(
     readonly index: number,
-    readonly fail: boolean
+    readonly fail: boolean,
+    readonly visible: boolean
   ) {
     super();
   }
@@ -811,7 +869,11 @@ class StepMarkerWidget extends WidgetType {
   toDOM() {
     let container = document.createElement("span");
     ReactDOM.createRoot(container).render(
-      <StepMarkerView index={this.index} fail={this.fail} />
+      <StepMarkerView
+        index={this.index}
+        fail={this.fail}
+        visible={this.visible}
+      />
     );
     return container;
   }
@@ -828,7 +890,7 @@ export function renderInterpreter(
 ) {
   let root = ReactDOM.createRoot(container);
   let marks = annotations?.state_locations || [];
-  let widgetRanges;
+  let widgetRanges: number[];
   if (marks.length > 0) {
     let [sortedMarks, filteredSteps] = filterSteps(view, trace.steps, marks);
     widgetRanges = sortedMarks;
@@ -839,22 +901,33 @@ export function renderInterpreter(
     );
   }
 
-  let decos = widgetRanges.map((mark, i) =>
-    Decoration.widget({
-      widget: new StepMarkerWidget(
-        i,
-        i === trace.steps.length - 1 && trace.result.type === "Error"
-      )
-    }).range(mark)
-  );
+  let controls = config?.interpreterControls || false;
 
-  view.dispatch({
-    effects: [markerField.setEffect.of(decos)]
-  });
+  let renderStepMarkers = (step: number) => {
+    let decos = widgetRanges.map((mark, i) =>
+      Decoration.widget({
+        widget: new StepMarkerWidget(
+          i,
+          i === trace.steps.length - 1 && trace.result.type === "Error",
+          !controls || i < step
+        )
+      }).range(mark)
+    );
+
+    view.dispatch({
+      effects: [markerField.setEffect.of(decos)]
+    });
+  };
+
+  renderStepMarkers(0);
 
   root.render(
     <CodeContext.Provider value={view}>
-      <InterpreterView trace={trace} config={config} />
+      <InterpreterView
+        trace={trace}
+        config={config}
+        onStepUpdated={step => renderStepMarkers(step)}
+      />
     </CodeContext.Provider>
   );
 }

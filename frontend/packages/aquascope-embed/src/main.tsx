@@ -225,13 +225,11 @@ window.initAquascopeBlocks = (root: HTMLElement) => {
 
     let shouldFailHtml = `
   <div class="ferris-container">
-    <a href="ch00-00-introduction.html#ferris" target="_blank">
-      <img
-        src="img/ferris/does_not_compile.svg"
-        title="This code does not compile!"
-        class="ferris ferris-large"
-      />
-    </a>
+    <img
+      src="img/ferris/does_not_compile.svg"
+      title="This code does not compile!"
+      class="ferris ferris-large"
+    />
   </div>
   `;
 

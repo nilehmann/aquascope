@@ -41,18 +41,22 @@ $transparent: rgba(0, 0, 0, 0);
 $base-z-index: 10;
 $glyph-width: 14px;
 
+@mixin action-hover {
+  opacity: 0;
+  transition: 100ms;
+  transition-property: color, border-color, background-color, opacity;
+}
+
 @mixin button {
   background-color: var(--aq-button-background);
   color: var(--aq-button-text);
-  opacity: 0;
   font-size: 14px;
   border: 1px solid var(--aq-button-border);
   border-radius: 4px;
   padding: 3px 5px;
   margin: 0px 5px;
-  transition: 100ms;
-  transition-property: color, border-color, background-color, opacity;
   cursor: pointer;
+  min-width: 26px;
 
   &:hover {
     background-color: var(--aq-button-background-hover);
@@ -282,6 +286,7 @@ $perm-animation-duration: 0.5s;
 
   .cm-button {
     @include button;
+    @include action-hover;
   }
 
   &:hover .cm-button {
@@ -523,12 +528,16 @@ $perm-animation-duration: 0.5s;
   overflow-x: auto;
   position: relative;
   font-size: 15px;
+  min-height: 200px;
 
-  .concrete-types {
+  .actions {
     position: absolute;
     top: 1rem;
     right: 1rem;
+    @include action-hover;
+  }
 
+  .concrete-types {
     @include button;
 
     &.active {
@@ -536,6 +545,10 @@ $perm-animation-duration: 0.5s;
       background-color: var(--aq-bg);
       color: var(--aq-fg);
     }
+  }
+
+  .step-button {
+    @include button;
   }
 
   .step {
@@ -629,12 +642,12 @@ $perm-animation-duration: 0.5s;
 
       tr.moved {
         opacity: 0.3;
-        
+
         background: repeating-linear-gradient(
-          45deg, 
-          var(--aq-step-table-border), 
-          var(--aq-step-table-border) 3px, 
-          var(--aq-bg) 3px, 
+          45deg,
+          var(--aq-step-table-border),
+          var(--aq-step-table-border) 3px,
+          var(--aq-bg) 3px,
           var(--aq-bg) 10px)
       }
 
