@@ -5,7 +5,11 @@ import LeaderLine, {
 } from "@aquascope/leader-line";
 import { Decoration, type EditorView, WidgetType } from "@codemirror/view";
 import { library } from "@fortawesome/fontawesome-svg-core";
-import { faBinoculars } from "@fortawesome/free-solid-svg-icons";
+import {
+  faBinoculars,
+  faStepBackward,
+  faStepForward
+} from "@fortawesome/free-solid-svg-icons";
 import classNames from "classnames";
 import _ from "lodash";
 import React, {
@@ -36,7 +40,7 @@ import {
   makeDecorationField
 } from "./misc.js";
 
-library.add(faBinoculars);
+library.add(faBinoculars, faStepBackward, faStepForward);
 
 const DEBUG: boolean = false;
 

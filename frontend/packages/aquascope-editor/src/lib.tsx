@@ -3,11 +3,18 @@ import { indentUnit } from "@codemirror/language";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, type ViewUpdate } from "@codemirror/view";
 import { dom, library } from "@fortawesome/fontawesome-svg-core";
-import { faCopy, faEye, faEyeSlash } from "@fortawesome/free-solid-svg-icons";
+import {
+  faCopy,
+  faEye,
+  faEyeSlash,
+  faPlay,
+  faStepBackward,
+  faStepForward
+} from "@fortawesome/free-solid-svg-icons";
 import React, { useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
 
-library.add(faCopy, faEye, faEyeSlash);
+library.add(faCopy, faEye, faEyeSlash, faPlay, faStepBackward, faStepForward);
 dom.watch();
 
 import { boundariesField } from "./editor-utils/boundaries.js";
