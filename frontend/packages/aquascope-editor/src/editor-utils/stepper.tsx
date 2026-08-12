@@ -403,8 +403,13 @@ class PermissionStepLineWidget extends WidgetType {
 
     let doc = this.view.state.doc;
     let currLine = this.line;
-    let initDisplay =
-      this.annotations && this.annotations.focused_lines.length > 0
+    // `collapse` wins outright. Otherwise a line is open unless some other
+    // line in the block claimed focus, in which case only focused lines open.
+    let initDisplay = this.annotations?.collapsed_lines.includes(
+      currLine.number
+    )
+      ? false
+      : this.annotations && this.annotations.focused_lines.length > 0
         ? this.annotations.focused_lines.includes(currLine.number)
         : true;
     let maxLineLen = 0;

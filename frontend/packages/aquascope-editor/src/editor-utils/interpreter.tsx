@@ -467,7 +467,6 @@ let renderArrows = (
   arrowContainerRef: React.RefObject<HTMLDivElement>
 ) => {
   useEffect(() => {
-    let container = containerRef.current!;
     let stepContainer = stepContainerRef.current!;
     let arrowContainer = arrowContainerRef.current!;
 
@@ -641,10 +640,15 @@ let renderArrows = (
 
     // Lastly, we add a timer to reposition the arrow container
     // if necessary.
+    // LeaderLine positions its SVGs in document coordinates, so the container
+    // offset must be in that same space. getBoundingClientRect is already
+    // relative to the viewport and accounts for every ancestor's scrolling,
+    // so adding `container`'s own scroll offsets double-counts them and
+    // detaches the arrows by exactly that amount.
     let curCoords = (): [number, number] => {
       let stepBox = stepContainer.getBoundingClientRect();
-      let x = stepBox.left + window.scrollX + container.scrollLeft;
-      let y = stepBox.top + window.scrollY + container.scrollTop;
+      let x = stepBox.left + window.scrollX;
+      let y = stepBox.top + window.scrollY;
       return [x, y];
     };
 

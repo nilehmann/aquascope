@@ -477,7 +477,17 @@ export class Editor {
 
 function run_rust_code(resultContainer: HTMLDivElement, view: EditorView) {
   resultContainer.innerHTML =
+    '<button type="button" class="cm-button result-close" title="Hide output">✕</button>' +
     '<pre><code class="result hljs language-bash">Running...</code></pre>';
+
+  // Emptying the container is enough to hide the output: it collapses to
+  // nothing and the Run button puts it back.
+  resultContainer
+    .querySelector(".result-close")
+    ?.addEventListener("click", () => {
+      resultContainer.innerHTML = "";
+    });
+
   let resultCode: any = resultContainer.querySelector(".result");
   if (!resultCode) {
     return;

@@ -54,8 +54,12 @@ let PermChar = ({ content, names, act, showit, hideit }: PermCharProps) => {
   );
 };
 
-const refiningLoan = (l: LoanRefined<LoanKey>) => {
-  if (l === "None") return;
+// The backend may leave `loan_refined` out entirely rather than sending
+// "None", and `"Read" in undefined` throws. Every caller passes the result to a
+// helper that already treats undefined as "no region", so returning early is
+// enough.
+const refiningLoan = (l?: LoanRefined<LoanKey>) => {
+  if (!l || l === "None") return;
   else if ("Read" in l) return l.Read.key;
   else return l.Write.key;
 };

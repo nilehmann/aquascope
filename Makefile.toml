@@ -37,3 +37,7 @@ cargo install --path crates/aquascope_front --locked
 [tasks.install-mdbook]
 dependencies = ["install-aquascope"]
 script = "cargo install --path crates/mdbook-aquascope --locked"
+
+[tasks.install-reveal]
+dependencies = ["install-aquascope"]
+script = "cargo install --path crates/aquascope-reveal --locked"

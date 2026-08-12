@@ -1,0 +1,132 @@
+/* Aquascope's style.css is written to run inside mdBook: it reads theme
+ * variables that the book supplies, and it expects mdBook's highlight.js
+ * stylesheet to colour the `hljs-*` spans CodeMirror emits. Neither exists
+ * outside a book, so without these every rule using them collapses -- no code
+ * background, no container border, no table shading, no syntax colours.
+ *
+ * These are mdBook's own `light` theme values, so a deck looks like the book
+ * did. `--code-bg` is not actually defined by mdBook 0.5; the value here is
+ * chosen to match its rendered code blocks. */
+:root {
+  --bg: hsl(0, 0%, 100%);
+  --fg: hsl(0, 0%, 0%);
+  --code-bg: #f6f7f6;
+  --table-header-bg: hsl(0, 0%, 80%);
+  --theme-popup-bg: #fafafa;
+  --theme-popup-border: #cccccc;
+  --theme-hover: #e6e6e6;
+  --icons: #747474;
+  --icons-hover: #000000;
+  --sidebar-bg: #fafafa;
+  --sidebar-fg: hsl(0, 0%, 0%);
+  --sidebar-active: #1f1fff;
+  --sidebar-non-existant: #aaaaaa;
+  --searchresults-header-fg: #666;
+}
+
+/* Layout for a deck initialized with `disableLayout: true`.
+ *
+ * reveal normally sizes the deck to a fixed pixel canvas and scales it to fit
+ * the window with a `transform`. Aquascope positions its arrows in document
+ * coordinates without compensating for a scaled ancestor, so instead we let
+ * slides lay out at natural size and fill the viewport, the way they do in an
+ * ordinary web page. The `!important`s here override reveal's inline styles. */
+
+.reveal .slides {
+  position: absolute;
+  text-align: left;
+}
+
+.reveal .slides > section,
+.reveal .slides > section > section {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  padding: 3vh 4vw;
+  box-sizing: border-box;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* Cancelling reveal's own positioning is scoped to `:not(.overview)`, because
+ * overview mode (Esc / O) lays the slides out as a zoomed-out grid using these
+ * very properties -- overriding them there collapses the grid into one pile. */
+.reveal:not(.overview) .slides {
+  top: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  transform: none !important;
+}
+
+.reveal:not(.overview) .slides > section,
+.reveal:not(.overview) .slides > section > section {
+  top: 0 !important;
+  left: 0 !important;
+  transform: none !important;
+}
+
+/* Slides in the grid should not scroll or capture the pointer. */
+.reveal.overview .slides > section,
+.reveal.overview .slides > section > section {
+  overflow: hidden;
+}
+
+/* reveal's fragments already give us incremental reveal. This variant takes up
+ * no space until shown, for content that would otherwise leave a gap. */
+.reveal .fragment.collapse:not(.visible) {
+  display: none;
+}
+
+/* Aquascope ships its own `.step*` classes (interpreter steps, step markers,
+ * step tables). Do not reuse that prefix for slide machinery. */
+
+.reveal .aquascope {
+  text-align: left;
+  /* Aquascope declares `height: 100%`. Inside mdBook the parent column has
+   * auto height, so that resolves to auto; against our full-height <section>
+   * it is definite, and the widget stretches over the entire slide. */
+  height: auto;
+}
+
+/* CodeMirror places an <img class="cm-widgetBuffer"> after every inline widget
+ * -- which includes each `[]` step marker. reveal styles every image inside a
+ * section as a bordered block, so each of those buffers breaks its line and
+ * adds ~32px, showing up as stray blank lines through the code. */
+.reveal .aquascope img.cm-widgetBuffer {
+  display: inline;
+}
+
+.reveal .aquascope img {
+  margin: 0;
+  border: 0;
+  background: none;
+}
+
+.reveal .aquascope .top-right {
+  z-index: 100 !important;
+}
+
+.reveal .aquascope td.perm-char {
+  font-size: 0.8em;
+}
+
+.reveal .aquascope div.step-table-dropdown {
+  max-height: initial;
+}
+
+/* CodeMirror and the interpreter render their own text; keep reveal's theme
+ * from stretching it. reveal also centres `pre` at 90% width, which leaves the
+ * Run button's playground output narrower than the block it belongs to. */
+.reveal .aquascope pre,
+.reveal .aquascope code {
+  font-size: inherit;
+  line-height: inherit;
+  box-shadow: none;
+}
+
+.reveal .aquascope pre {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+}

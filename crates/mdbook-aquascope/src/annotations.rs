@@ -28,6 +28,10 @@ pub enum PathMatcher {
 #[ts(export)]
 pub struct StepperAnnotations {
   focused_lines: Vec<MdLinePos>,
+  /// Lines that start collapsed. Without this, a block containing no `focus`
+  /// at all shows every line expanded, so there is no way to narrow a line's
+  /// paths and keep it closed.
+  collapsed_lines: Vec<MdLinePos>,
   focused_paths: HashMap<MdLinePos, Vec<PathMatcher>>,
 }
 
@@ -128,6 +132,9 @@ pub fn parse_annotations(code: &str) -> Result<(String, AquascopeAnnotations)> {
             if config.contains_key("focus") {
               annots.stepper.focused_lines.push(line_pos);
             }
+            if config.contains_key("collapse") {
+              annots.stepper.collapsed_lines.push(line_pos);
+            }
             let mut add_matcher = |matcher: PathMatcher| {
               annots
                 .stepper
@@ -184,12 +191,30 @@ let y = 2;
     },
     stepper: StepperAnnotations {
       focused_lines: vec![MdLinePos(2)],
+      collapsed_lines: vec![],
       focused_paths: maplit::hashmap! {
         MdLinePos(2) => vec![PathMatcher::Literal("x".into()), PathMatcher::Regex("y".into())]
       }
     },
     boundaries: BoundariesAnnotations {
       focused_lines: vec![MdLinePos(3)]
+    }
+  });
+}
+
+#[test]
+fn test_parse_collapse_annotation() {
+  // `collapse` narrows a line's paths while leaving it closed, which is
+  // otherwise impossible: with no `focus` anywhere the frontend expands every
+  // line.
+  let input = r#"let v = 1;`(collapse,paths:*v)`"#;
+  let (cleaned, annot) = parse_annotations(input).unwrap();
+  assert_eq!(cleaned, "let v = 1;");
+  assert_eq!(annot.stepper, StepperAnnotations {
+    focused_lines: vec![],
+    collapsed_lines: vec![MdLinePos(1)],
+    focused_paths: maplit::hashmap! {
+      MdLinePos(1) => vec![PathMatcher::Literal("*v".into())]
     }
   });
 }

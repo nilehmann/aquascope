@@ -156,6 +156,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "aquascope-reveal"
+version = "0.4.0"
+dependencies = [
+ "anyhow",
+ "clap 4.3.24",
+ "mdbook-aquascope",
+ "pulldown-cmark 0.9.6",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+]
+
+[[package]]
 name = "aquascope_front"
 version = "0.1.0"
 dependencies = [
@@ -1503,7 +1516,7 @@ dependencies = [
  "mdbook-core",
  "mdbook-markdown",
  "mdbook-renderer",
- "pulldown-cmark",
+ "pulldown-cmark 0.13.3",
  "regex",
  "serde",
  "serde_json",
@@ -1517,7 +1530,7 @@ version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07c41bf35212f5d8b83e543aa6a4887dc5709c8489c5fb9ed00f1b51ce1a2cc6"
 dependencies = [
- "pulldown-cmark",
+ "pulldown-cmark 0.13.3",
  "regex",
  "tracing",
 ]
@@ -1576,7 +1589,7 @@ dependencies = [
  "anyhow",
  "mdbook-core",
  "memchr",
- "pulldown-cmark",
+ "pulldown-cmark 0.13.3",
  "serde",
  "tracing",
 ]
@@ -1994,6 +2007,17 @@ dependencies = [
 
 [[package]]
 name = "pulldown-cmark"
+version = "0.9.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57206b407293d2bcd3af849ce869d52068623f19e1b5ff8e8778e3309439682b"
+dependencies = [
+ "bitflags 2.11.1",
+ "memchr",
+ "unicase",
+]
+
+[[package]]
+name = "pulldown-cmark"
 version = "0.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c3a14896dfa883796f1cb410461aef38810ea05f2b2c33c5aded3649095fdad"
@@ -2305,6 +2329,19 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "serde_yaml"
+version = "0.9.34+deprecated"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47"
+dependencies = [
+ "indexmap 2.14.0",
+ "itoa",
+ "ryu",
+ "serde",
+ "unsafe-libyaml",
 ]
 
 [[package]]
@@ -2950,6 +2987,12 @@ name = "unicode-xid"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
+
+[[package]]
+name = "unsafe-libyaml"
+version = "0.2.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
 name = "utf-8"

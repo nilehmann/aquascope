@@ -711,3 +711,24 @@ $perm-animation-duration: 0.5s;
 .leader-line {
   z-index: $base-z-index;
 }
+
+// Output from the Run button, which posts the snippet to the Rust playground.
+.result-container {
+  position: relative;
+
+  // Only present while there is output to hide.
+  .result-close {
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: 1;
+    padding: 0 0.4em;
+    line-height: 1.4;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+
+  &:hover .result-close {
+    opacity: 1;
+  }
+}
