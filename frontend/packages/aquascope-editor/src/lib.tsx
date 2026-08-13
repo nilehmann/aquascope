@@ -273,7 +273,11 @@ export class Editor {
                 }}
               />
             ) : button === "run" ? (
-              <RunButton container={this.resultContainer} view={this.view} />
+              <RunButton
+                key={i}
+                container={this.resultContainer}
+                view={this.view}
+              />
             ) : null
           )}
         </div>

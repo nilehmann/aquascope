@@ -219,7 +219,9 @@ let PermDiffRow = ({
     for (let { value, icon, desc } of states) {
       if (_.isEqual(elaboratedDiffs[fact].type, value.type)) {
         icos.push(
-          <span className="perm-step-icon">
+          // Each fact contributes at most one state per icon, so the pair is a
+          // stable identity for this row.
+          <span className={"perm-step-icon"} key={`${fact}-${icon}`}>
             <i
               className={`fa fa-${icon} aquascope-action-indicator`}
               title={desc}
