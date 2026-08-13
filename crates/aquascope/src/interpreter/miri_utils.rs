@@ -154,8 +154,13 @@ pub fn locate_address_in_type<'tcx>(
 
     let segment = match mplace.meta() {
       MemPlaceMeta::Meta(meta) => {
-        let end_offset = meta.to_u64().unwrap();
-        let to = index + end_offset / array_elem_size - 1;
+        // Slice metadata is an element count, not a byte size, so it must not
+        // be divided by the element size. That division was invisible for
+        // `&str`, whose elements are bytes, but for `&[i32]` it truncated a
+        // length of 2 to 0 -- yielding an end index of `start - 1`, which
+        // underflowed to usize::MAX whenever the slice started at 0.
+        let len = meta.to_u64().unwrap();
+        let to = index + len.saturating_sub(1);
         PlaceElem::Subslice {
           from: index,
           to,
