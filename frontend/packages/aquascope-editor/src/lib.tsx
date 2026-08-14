@@ -51,6 +51,18 @@ export * as types from "./types.js";
 
 const DEFAULT_SERVER_URL = new URL("http://127.0.0.1:8008");
 
+// Where the Run button sends snippets. A host that can compile Rust itself --
+// `aquascope-reveal --serve` does -- points `window.AQUASCOPE_RUN_URL` at its
+// own endpoint so the button works offline. Read per click rather than at load,
+// so the host can set it whenever it likes.
+const DEFAULT_RUN_URL = "https://play.rust-lang.org/evaluate.json";
+
+declare global {
+  interface Window {
+    AQUASCOPE_RUN_URL?: string;
+  }
+}
+
 export type Result<T> = { Ok: T } | { Err: BackendError };
 
 // XXX this extra server response type is really
@@ -504,7 +516,7 @@ function run_rust_code(resultContainer: HTMLDivElement, view: EditorView) {
     edition: "2021"
   };
 
-  fetch("https://play.rust-lang.org/evaluate.json", {
+  fetch(window.AQUASCOPE_RUN_URL ?? DEFAULT_RUN_URL, {
     headers: {
       "Content-Type": "application/json"
     },

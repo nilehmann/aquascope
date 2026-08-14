@@ -37,12 +37,19 @@
   text-align: left;
 }
 
+/* More room above than below: a slide's first line is usually its heading, and
+ * starting it 3vh from the edge reads as clipped rather than as a title. A
+ * variable so a deck can set its own inset without rebuilding. */
+:root {
+  --aq-slide-padding: 6vh 4vw 3vh;
+}
+
 .reveal .slides > section,
 .reveal .slides > section > section {
   position: absolute;
   width: 100%;
   height: 100%;
-  padding: 3vh 4vw;
+  padding: var(--aq-slide-padding);
   box-sizing: border-box;
   overflow-x: hidden;
   overflow-y: auto;
@@ -87,6 +94,12 @@
    * auto height, so that resolves to auto; against our full-height <section>
    * it is definite, and the widget stretches over the entire slide. */
   height: auto;
+  /* Aquascope separates a block from the prose above it with `margin-top: 2em`
+   * -- 64px at a slide's font size, which is most of what pushes a code block
+   * plus its interpreter past the bottom of the slide. A slide has a heading
+   * and a line or two above the block, not a page of text, so it needs much
+   * less. */
+  margin-top: var(--aq-block-margin-top, 0.5em);
 }
 
 /* CodeMirror places an <img class="cm-widgetBuffer"> after every inline widget
@@ -115,6 +128,13 @@
   max-height: initial;
 }
 
+/* Aquascope sets the editor at 0.875em, which suits a book column. Code is the
+ * thing a slide is about, so it gets nearly the slide's full size here -- a
+ * shade under, because code lines are long and the block has to fit. */
+.reveal .aquascope .cm-content {
+  font-size: var(--aq-code-font-size, 0.925em);
+}
+
 /* CodeMirror and the interpreter render their own text; keep reveal's theme
  * from stretching it. reveal also centres `pre` at 90% width, which leaves the
  * Run button's playground output narrower than the block it belongs to. */
@@ -129,4 +149,154 @@
   width: 100%;
   max-width: 100%;
   margin: 0;
+}
+
+/* Colours for rustc's diagnostics in the Run output, which `--serve` turns
+ * into spans referring to these variables (see `src/run.rs`). rustc uses the
+ * bright half of the palette: 91 for errors and the `^^^` under them, 94 for
+ * line numbers, gutters and notes, 93 for warnings, 92 for suggestions.
+ *
+ * A terminal's bright colours assume a dark background and wash out on a white
+ * slide seen from the back of a room, so these are darkened for contrast and
+ * kept close in hue to what the compiler shows in a terminal. The variables
+ * are the whole point of the indirection: a deck's own stylesheet is linked
+ * after this one, so redefining any of them on `:root` wins. */
+:root {
+  --aq-ansi-bright-red: #c62828;
+  --aq-ansi-bright-green: #2e7d32;
+  --aq-ansi-bright-yellow: #a06000;
+  --aq-ansi-bright-blue: #1565c0;
+  --aq-ansi-bright-magenta: #8e24aa;
+  --aq-ansi-bright-cyan: #00796b;
+  --aq-ansi-bright-black: #616161;
+  --aq-ansi-bright-white: #212121;
+
+  --aq-ansi-red: var(--aq-ansi-bright-red);
+  --aq-ansi-green: var(--aq-ansi-bright-green);
+  --aq-ansi-yellow: var(--aq-ansi-bright-yellow);
+  --aq-ansi-blue: var(--aq-ansi-bright-blue);
+  --aq-ansi-magenta: var(--aq-ansi-bright-magenta);
+  --aq-ansi-cyan: var(--aq-ansi-bright-cyan);
+  --aq-ansi-black: #212121;
+  --aq-ansi-white: #616161;
+}
+
+/* `b` is what the converter emits for bold, and rustc bolds every coloured
+ * span. Reveal's `strong` weight is heavy enough to blur a monospace glyph at
+ * projector resolution. */
+.reveal .aquascope .result b,
+.aq-output-modal b {
+  font-weight: 600;
+}
+
+/* Opens the run output over the slide, for a diagnostic too small or too long
+ * to read from the back of the room. Added by aquascope-reveal.js, next to the
+ * editor's ✕ in a `.top-right` row.
+ *
+ * The editor positions that ✕ itself, with padding of its own; inside the row
+ * both buttons should sit like the code and interpreter controls, which is
+ * what `.cm-button` already gives them. Hover reveal comes from
+ * `.aquascope:hover .cm-button`, so there is nothing to restate here. */
+.reveal .aquascope .result-container .result-close,
+.reveal .aquascope .result-container .result-expand {
+  position: static;
+  padding: var(--aq-button-padding);
+  line-height: normal;
+}
+
+/* `.top-right` pins the editor's controls at 8px/2px, hard against the corner
+ * of the block. The result box is a plain panel of text, so its controls are
+ * inset the way the interpreter's `.actions` are instead. */
+.reveal .aquascope .result-container .top-right {
+  top: 1rem;
+  right: 1rem;
+}
+
+/* Aquascope sizes its controls for a book read at arm's length: 14px glyphs in
+ * a 26px box. On a projected slide they are too small to aim at and too small
+ * to see. The sizes are variables so a deck can take them further.
+ *
+ * Three selectors because the same button styling is written out three times
+ * upstream: `.cm-button` for the editor's own controls, and `.step-button` and
+ * `.concrete-types` for the interpreter's, which do not share that class. */
+:root {
+  --aq-button-font-size: 18px;
+  --aq-button-padding: 5px 8px;
+  --aq-button-min-width: 34px;
+}
+
+.reveal .aquascope .cm-button,
+.reveal .aquascope .interpreter .step-button,
+.reveal .aquascope .interpreter .concrete-types {
+  font-size: var(--aq-button-font-size);
+  padding: var(--aq-button-padding);
+  min-width: var(--aq-button-min-width);
+}
+
+/* The modal is appended to <body>, outside `.reveal`, so none of reveal's
+ * typography applies to it and none of the rules above reach it. */
+.aq-output-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+/* Sized by the diagnostic rather than by the viewport: the panel is as wide as
+ * its longest line and as tall as its line count, so a short output stays
+ * small. The maxima only bite on a large diagnostic -- and they stop well
+ * short of the edges, so the panel always reads as a sheet lying on the slide
+ * rather than as a second screen. Inside those bounds the text still needs
+ * room to breathe: the padding is what keeps a wrapped line off the border. */
+.aq-output-modal-panel {
+  width: fit-content;
+  max-width: 84vw;
+  max-height: 84vh;
+  overflow: auto;
+  padding: 1.75rem 2.5rem;
+  background: var(--code-bg);
+  border: 1px solid var(--theme-popup-border);
+  border-radius: 6px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+  /* Focused on open so the arrows scroll it; the ring adds nothing. */
+  outline: none;
+}
+
+.aq-output-modal pre {
+  margin: 0;
+}
+
+/* A diagnostic is read next to the code it is about, so it is set at the same
+ * size as that code -- unlike the inline output, which the deck shrinks to fit
+ * under the block.
+ *
+ * The modal lives in <body>, outside `.reveal`, so it cannot inherit the slide
+ * font size and has to be told. The default is reveal's own; a deck that sets
+ * a size on `.reveal` should set this variable to match, e.g.
+ *
+ *   .reveal { font-size: 28px; }
+ *   :root   { --aq-output-font-size: 28px; } */
+.aq-output-modal code {
+  font-family: var(
+    --aq-output-font-family,
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace
+  );
+  font-size: var(--aq-output-font-size, 42px);
+  /* Tighter than the inline output: at this size the extra leading costs more
+   * vertical room than it buys in legibility. */
+  line-height: 1.3;
+  /* `pre-wrap`, not `pre`. rustc does not wrap its own prose labels -- a
+   * `move occurs because ...` note runs past 110 columns, which overflows any
+   * screen once the text is large enough to read from the back of the room.
+   * Wrapping costs the gutter alignment on that one line and keeps the rest;
+   * scrolling horizontally would hide it outright. */
+  white-space: pre-wrap;
+  color: var(--fg);
 }

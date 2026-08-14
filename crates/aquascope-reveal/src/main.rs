@@ -17,6 +17,7 @@ mod attributes;
 mod deck;
 mod frontmatter;
 mod lint;
+mod run;
 mod serve;
 
 /// Assets copied verbatim into `<out>/aquascope/`. The first two come from the
@@ -226,6 +227,18 @@ fn build(args: &Args, preprocessor: &mut AquascopePreprocessor) -> Result<()> {
     tail.push_str(&format!("  <script src=\"assets/{name}\"></script>\n"));
   }
 
+  // The Run button posts to the Rust playground unless told otherwise. While
+  // serving we can answer it ourselves, from the same origin -- so a deck
+  // built to be hosted elsewhere keeps the playground, and one being presented
+  // off a laptop needs no network. See `serve::post`.
+  let run_url = match args.serve {
+    Some(_) => format!(
+      "  <script>window.AQUASCOPE_RUN_URL = \"{}\";</script>\n",
+      serve::RUN_ENDPOINT
+    ),
+    None => String::new(),
+  };
+
   // The stamp changes on every rebuild; livereload.js polls it and reloads.
   if args.watch {
     fs::write(aquascope_dir.join("livereload.js"), LIVERELOAD_JS)?;
@@ -256,7 +269,7 @@ fn build(args: &Args, preprocessor: &mut AquascopePreprocessor) -> Result<()> {
   <script src="{plugin}/highlight/highlight.js"></script>
   <script src="{plugin}/notes/notes.js"></script>
   <script>window.AQUASCOPE_REVEAL_OPTIONS = {reveal_options};</script>
-  <script src="aquascope/aquascope-reveal.js"></script>
+{run_url}  <script src="aquascope/aquascope-reveal.js"></script>
 {tail}</body>
 </html>
 "#,

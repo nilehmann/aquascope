@@ -4,16 +4,28 @@
 //! compression. A deck is a handful of files served to one browser on
 //! localhost, so the interesting part is only that it is correct about paths
 //! and content types.
+//!
+//! The one dynamic route is [`RUN_ENDPOINT`], which stands in for the Rust
+//! playground so that the Run button works without a network. See [`crate::run`].
 
 use std::{
   fs,
-  io::{BufRead, BufReader, Write},
+  io::{BufRead, BufReader, Read, Write},
   net::{TcpListener, TcpStream},
   path::{Component, Path, PathBuf},
   thread,
 };
 
 use anyhow::{Context, Result};
+
+use crate::run;
+
+/// Where the editor posts snippets. The path is the playground's, because the
+/// editor's default is the playground and it only varies the origin.
+pub const RUN_ENDPOINT: &str = "/evaluate.json";
+
+/// A snippet is a slide's worth of code. Anything larger is not a snippet.
+const MAX_BODY: usize = 1 << 20;
 
 /// Binds the port and serves `root` on a background thread.
 ///
@@ -54,6 +66,10 @@ fn handle(mut stream: TcpStream, root: &Path) -> std::io::Result<()> {
   let method = parts.next().unwrap_or_default();
   let target = parts.next().unwrap_or("/");
 
+  if method == "POST" {
+    return post(&mut stream, &mut reader, target);
+  }
+
   if method != "GET" && method != "HEAD" {
     return respond(&mut stream, 405, "text/plain", b"method not allowed", true);
   }
@@ -69,6 +85,66 @@ fn handle(mut stream: TcpStream, root: &Path) -> std::io::Result<()> {
     }
     Err(_) => respond(&mut stream, 404, "text/plain", b"not found", head_only),
   }
+}
+
+/// The only POST route is the snippet runner.
+fn post(
+  stream: &mut TcpStream,
+  reader: &mut BufReader<TcpStream>,
+  target: &str,
+) -> std::io::Result<()> {
+  let path = target.split(['?', '#']).next().unwrap_or("/");
+  let length = content_length(reader)?;
+
+  if path != RUN_ENDPOINT {
+    // The body has to come off the socket either way, or the browser sees the
+    // response as a broken connection rather than a 404.
+    let _ = read_body(reader, length);
+    return respond(stream, 404, "text/plain", b"not found", false);
+  }
+
+  let Some(body) = read_body(reader, length)? else {
+    return respond(stream, 413, "text/plain", b"body too large", false);
+  };
+
+  let json = run::evaluate(&body);
+  respond(stream, 200, "application/json; charset=utf-8", &json, false)
+}
+
+/// Consumes the request headers, returning the declared body length. Anything
+/// unparsable reads as no body, which the runner reports as a malformed
+/// request.
+fn content_length(reader: &mut BufReader<TcpStream>) -> std::io::Result<usize> {
+  let mut length = 0;
+  loop {
+    let mut line = String::new();
+    if reader.read_line(&mut line)? == 0 {
+      break;
+    }
+    let line = line.trim_end();
+    if line.is_empty() {
+      break;
+    }
+    if let Some((name, value)) = line.split_once(':') {
+      if name.eq_ignore_ascii_case("content-length") {
+        length = value.trim().parse().unwrap_or(0);
+      }
+    }
+  }
+  Ok(length)
+}
+
+/// `None` if the client declared more than [`MAX_BODY`].
+fn read_body(
+  reader: &mut BufReader<TcpStream>,
+  length: usize,
+) -> std::io::Result<Option<Vec<u8>>> {
+  if length > MAX_BODY {
+    return Ok(None);
+  }
+  let mut body = vec![0; length];
+  reader.read_exact(&mut body)?;
+  Ok(Some(body))
 }
 
 /// Maps a request target onto a path inside `root`, or `None` if it tries to
@@ -149,6 +225,7 @@ fn respond(
     200 => "OK",
     403 => "Forbidden",
     404 => "Not Found",
+    413 => "Payload Too Large",
     _ => "Method Not Allowed",
   };
 
