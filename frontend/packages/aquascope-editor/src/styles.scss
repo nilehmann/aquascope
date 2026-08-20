@@ -530,10 +530,17 @@ $perm-animation-duration: 0.5s;
   font-size: 15px;
   min-height: 200px;
 
+  // A hidden step keeps its `opacity: 0` box in the flow, and any opacity
+  // below 1 makes it a stacking context -- which paints in the same layer as
+  // this absolutely positioned row, later in DOM order, and so on top of it.
+  // Without a z-index the controls are unclickable exactly while the step
+  // under them is hidden, i.e. before the first step is revealed and again
+  // after stepping back past it.
   .actions {
     position: absolute;
     top: 1rem;
     right: 1rem;
+    z-index: $base-z-index + 3;
     @include action-hover;
   }
 
