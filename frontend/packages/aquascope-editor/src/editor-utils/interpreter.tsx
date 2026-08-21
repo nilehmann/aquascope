@@ -89,10 +89,15 @@ let useMovedPaths = (
 /// One child of a composite value -- a struct field, a tuple element, an array
 /// element. Shaded when that child, rather than the value containing it, is
 /// what was moved.
+///
+/// Given a `label`, this is a named field and renders the whole labelled row,
+/// shading included, so that a moved-out field reads the way a moved-out local
+/// does: the name leaves with the value.
 let SubvalueView = ({
   segment,
   path,
   value,
+  label,
   element: Element = "td",
   connector,
   children
@@ -100,14 +105,19 @@ let SubvalueView = ({
   segment: MPathSegment;
   path: string[];
   value?: MValue;
+  label?: string;
   element?: "td" | "span";
   connector?: string;
   children?: React.ReactNode;
 }) => {
   let { moved, paths } = useMovedPaths(segment);
-  return (
+  // The shading goes on whichever element covers the name as well as the
+  // value. Putting it on both would stack the two opacities and leave the
+  // field almost invisible.
+  let onRow = label !== undefined;
+  let cell = (
     <Element
-      className={classNames(path.join("-"), { moved })}
+      className={classNames(path.join("-"), { moved: moved && !onRow })}
       data-connector={connector}
     >
       <PathContext.Provider value={path}>
@@ -116,6 +126,15 @@ let SubvalueView = ({
         </MovedPathsContext.Provider>
       </PathContext.Provider>
     </Element>
+  );
+
+  if (!onRow) return cell;
+
+  return (
+    <tr className={classNames({ moved })}>
+      <td>{label}</td>
+      {cell}
+    </tr>
   );
 };
 
@@ -268,6 +287,9 @@ let AdtView = ({ value }: { value: MAdt }) => {
       segment={{ type: "Field", value: i }}
       path={[...pathCtx, "field", i.toString()]}
       value={v}
+      // A tuple's elements have no names, so those cells shade on their own;
+      // a named field hands its label to `SubvalueView` and becomes a row.
+      label={isTuple ? undefined : k}
     />
   ));
 
@@ -275,18 +297,7 @@ let AdtView = ({ value }: { value: MAdt }) => {
     <>
       {adtName}
       <table>
-        <tbody>
-          {isTuple ? (
-            <tr>{cells}</tr>
-          ) : (
-            value.fields.map(([k, _v], i) => (
-              <tr key={i}>
-                <td>{k}</td>
-                {cells[i]}
-              </tr>
-            ))
-          )}
-        </tbody>
+        <tbody>{isTuple ? <tr>{cells}</tr> : cells}</tbody>
       </table>
     </>
   );
