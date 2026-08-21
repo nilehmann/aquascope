@@ -28,6 +28,7 @@ import type {
   MFrame,
   MHeap,
   MLocal,
+  MPathSegment,
   MStack,
   MStep,
   MTrace,
@@ -58,6 +59,66 @@ let ErrorContext = React.createContext<MUndefinedBehavior | undefined>(
   undefined
 );
 
+// The moves that land somewhere *inside* the value being rendered, each one
+// relative to it: `[]` means this value itself was moved, `[Field(0)]` means
+// its first field was. A local whose `name` field was moved starts its value
+// off with `[[Field(0)]]`, and the struct's field cell for index 0 receives
+// `[[]]` -- that cell is the one that gets shaded.
+let MovedPathsContext = React.createContext<MPathSegment[][]>([]);
+
+let sameSegment = (a: MPathSegment, b: MPathSegment): boolean =>
+  a.type === "Subslice" && b.type === "Subslice"
+    ? a.value[0] === b.value[0] && a.value[1] === b.value[1]
+    : a.type === b.type && a.value === b.value;
+
+/// Routes the pending moved paths one level down, into the child reached by
+/// `segment`. The child is moved if a path ends exactly at it.
+let useMovedPaths = (
+  segment: MPathSegment
+): { moved: boolean; paths: MPathSegment[][] } => {
+  let paths = useContext(MovedPathsContext);
+  let descended = paths
+    .filter(path => path.length > 0 && sameSegment(path[0], segment))
+    .map(path => path.slice(1));
+  return {
+    moved: descended.some(path => path.length === 0),
+    paths: descended.filter(path => path.length > 0)
+  };
+};
+
+/// One child of a composite value -- a struct field, a tuple element, an array
+/// element. Shaded when that child, rather than the value containing it, is
+/// what was moved.
+let SubvalueView = ({
+  segment,
+  path,
+  value,
+  element: Element = "td",
+  connector,
+  children
+}: {
+  segment: MPathSegment;
+  path: string[];
+  value?: MValue;
+  element?: "td" | "span";
+  connector?: string;
+  children?: React.ReactNode;
+}) => {
+  let { moved, paths } = useMovedPaths(segment);
+  return (
+    <Element
+      className={classNames(path.join("-"), { moved })}
+      data-connector={connector}
+    >
+      <PathContext.Provider value={path}>
+        <MovedPathsContext.Provider value={paths}>
+          {children ?? <ValueView value={value!} />}
+        </MovedPathsContext.Provider>
+      </PathContext.Provider>
+    </Element>
+  );
+};
+
 let codeRange = (view: EditorView, range: CharRange) => {
   let start = linecolToPosition(range.start, view.state.doc);
   let end = linecolToPosition(range.end, view.state.doc);
@@ -68,16 +129,15 @@ let AbbreviatedView = ({ value }: { value: Abbreviated<MValue> }) => {
   let pathCtx = useContext(PathContext);
   let IndexedContainer: React.FC<
     React.PropsWithChildren<{ index: number }>
-  > = ({ children, index }) => {
-    let path = [...pathCtx, "index", index.toString()];
-    return (
-      <PathContext.Provider value={path}>
-        <td className={path.join("-")} data-connector="bottom">
-          {children}
-        </td>
-      </PathContext.Provider>
-    );
-  };
+  > = ({ children, index }) => (
+    <SubvalueView
+      segment={{ type: "Index", value: index }}
+      path={[...pathCtx, "index", index.toString()]}
+      connector="bottom"
+    >
+      {children}
+    </SubvalueView>
+  );
 
   // TODO: handle indexes into abbreviated + end regions
   return (
@@ -177,17 +237,17 @@ let AdtView = ({ value }: { value: MAdt }) => {
   if (isTuple && value.fields.length === 1) {
     let path = [...pathCtx, "field", "0"];
     let field = value.fields[0][1];
-    let inner = (
-      <PathContext.Provider value={path}>
-        <ValueView value={field} />
-      </PathContext.Provider>
-    );
+    let inner = <ValueView value={field} />;
     let smallInside =
       field.type === "Adt" &&
       !config.concreteTypes &&
       specialPtr(field.value) !== undefined;
     return (
-      <span className={path.join("-")}>
+      <SubvalueView
+        segment={{ type: "Field", value: 0 }}
+        path={path}
+        element="span"
+      >
         {smallInside ? (
           <>
             {adtName}({inner})
@@ -198,20 +258,18 @@ let AdtView = ({ value }: { value: MAdt }) => {
             {adtName} /&nbsp;{inner}
           </>
         )}
-      </span>
+      </SubvalueView>
     );
   }
 
-  let cells = value.fields.map(([k, v], i) => {
-    let path = [...pathCtx, "field", i.toString()];
-    return (
-      <td key={k} className={path.join("-")}>
-        <PathContext.Provider value={path}>
-          <ValueView value={v} />
-        </PathContext.Provider>
-      </td>
-    );
-  });
+  let cells = value.fields.map(([k, v], i) => (
+    <SubvalueView
+      key={k}
+      segment={{ type: "Field", value: i }}
+      path={[...pathCtx, "field", i.toString()]}
+      value={v}
+    />
+  ));
 
   return (
     <>
@@ -293,11 +351,27 @@ let PointerView = ({ value: { path, range } }: { value: MPointer }) => {
   );
 };
 
+/// Wraps a value that is itself the thing that was moved, without a finer
+/// place to say so.
+let MovedWrapper: React.FC<React.PropsWithChildren<{ moved: boolean }>> = ({
+  moved,
+  children
+}) => (moved ? <span className="moved">{children}</span> : <>{children}</>);
+
 let ValueView = ({ value }: { value: MValue }) => {
   let pathCtx = useContext(PathContext);
   let error = useContext(ErrorContext);
+
+  // A move that reaches into something the diagram does not lay out
+  // field-by-field -- inside a pointer, or an array's abbreviated middle --
+  // has no cell of its own to shade, so it shades this value as a whole. That
+  // is what the old behaviour did for every partial move.
+  let composite =
+    value.type === "Adt" || value.type === "Tuple" || value.type === "Array";
+  let stranded = useContext(MovedPathsContext).length > 0 && !composite;
+
   return (
-    <>
+    <MovedWrapper moved={stranded}>
       {value.type === "Bool" ||
       value.type === "Uint" ||
       value.type === "Int" ||
@@ -310,16 +384,14 @@ let ValueView = ({ value }: { value: MValue }) => {
           <table>
             <tbody>
               <tr>
-                {value.value.map((v, i) => {
-                  let path = [...pathCtx, "field", i.toString()];
-                  return (
-                    <td key={i} className={path.join("-")}>
-                      <PathContext.Provider value={path}>
-                        <ValueView value={v} />
-                      </PathContext.Provider>
-                    </td>
-                  );
-                })}
+                {value.value.map((v, i) => (
+                  <SubvalueView
+                    key={i}
+                    segment={{ type: "Field", value: i }}
+                    path={[...pathCtx, "field", i.toString()]}
+                    value={v}
+                  />
+                ))}
               </tr>
             </tbody>
           </table>
@@ -345,7 +417,7 @@ let ValueView = ({ value }: { value: MValue }) => {
       ) : (
         <>TODO</>
       )}
-    </>
+    </MovedWrapper>
   );
 };
 
@@ -358,15 +430,22 @@ let LocalsView = ({ index, locals }: { index: number; locals: MLocal[] }) =>
         {locals.map(({ name, value, moved_paths }, i) => {
           let path = ["stack", index.toString(), name];
 
-          // TODO: implement support for move paths length > 0
+          // An empty path is the local itself, so the whole row is shaded --
+          // name included. Anything deeper is a partial move, and is routed
+          // into the value so that only the field that left is shaded.
           let isMoved = moved_paths.some(p => p.length === 0);
+          let partialPaths = isMoved
+            ? []
+            : moved_paths.filter(p => p.length > 0);
 
           return (
             <tr key={i} className={classNames({ moved: isMoved })}>
               <td>{name}</td>
               <td className={path.join("-")} data-connector="right">
                 <PathContext.Provider value={path}>
-                  <ValueView value={value} />
+                  <MovedPathsContext.Provider value={partialPaths}>
+                    <ValueView value={value} />
+                  </MovedPathsContext.Provider>
                 </PathContext.Provider>
               </td>
             </tr>

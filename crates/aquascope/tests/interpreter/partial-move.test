@@ -1,0 +1,10 @@
+struct User {
+  name: String,
+  age: u32,
+}
+
+fn main() {
+  let u = User { name: String::from("Ursula"), age: 23 };
+  let n = u.name;
+  println!("{n} {}", u.age);
+}

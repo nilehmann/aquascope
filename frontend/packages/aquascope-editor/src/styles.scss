@@ -647,7 +647,12 @@ $perm-animation-duration: 0.5s;
     .heap > table {
       border: 2px solid var(--aq-step-table-border);
 
-      tr.moved {
+      // A whole local that was moved shades its row, name and all. A local
+      // only partially moved shades just the cell of the field that left, so
+      // the same hatching has to work on a `td` (and on the `span` a value
+      // with no cell of its own is wrapped in).
+      tr.moved,
+      .moved {
         opacity: 0.3;
 
         background: repeating-linear-gradient(

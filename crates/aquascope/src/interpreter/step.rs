@@ -579,10 +579,27 @@ impl<'tcx> VisEvaluator<'tcx> {
               // todo!()
             }
             Either::Right((local, ..)) => {
-              moved_places.add_place(
-                n_frames - 1,
-                Place::from_local(local, self.ecx.tcx()),
-              );
+              // Evaluating a place resolves it to the slot holding it, which
+              // for a partial move like `u.name` is the whole of `u` -- the
+              // projection is gone, and the diagram would shade the entire
+              // struct. Take the projection from the MIR place instead, as
+              // long as it is one the diagram can follow: a dereference
+              // leaves this local's own value, and any other projection has
+              // no path segment to name it with.
+              let place = if place.local == local
+                && place.projection.iter().all(|elem| {
+                  matches!(
+                    elem,
+                    PlaceElem::Field(..)
+                      | PlaceElem::Index(..)
+                      | PlaceElem::Subslice { .. }
+                  )
+                }) {
+                place
+              } else {
+                Place::from_local(local, self.ecx.tcx())
+              };
+              moved_places.add_place(n_frames - 1, place);
             }
           }
         }
