@@ -820,10 +820,14 @@ let StepView = ({
 
 let InterpreterView = ({
   trace,
+  errorStep,
   config,
   onStepUpdated
 }: {
   trace: MTrace<CharRange>;
+  // The step at which evaluation raised UB, if any. Identified by reference
+  // because `trace.steps` may have been filtered down to the marked steps.
+  errorStep?: MStep<CharRange>;
   config?: InterpreterConfig;
   onStepUpdated?: (step: number) => void;
 }) => {
@@ -888,7 +892,7 @@ let InterpreterView = ({
         </div>
         {trace.steps.map((step, i) => {
           let error =
-            i === trace.steps.length - 1 && trace.result.type === "Error"
+            step === errorStep && trace.result.type === "Error"
               ? trace.result.value
               : undefined;
           return (
@@ -914,15 +918,21 @@ let filterSteps = (
 ): [number[], MStep<CharRange>[]] => {
   let stepsRev = [...steps].reverse();
   let indexedMarks: [number, number, MStep<CharRange>][] = marks.map(idx => {
-    let stepRevIdx = stepsRev.findIndex(step => {
-      let frame = _.last(step.stack.frames)!;
-      let markInFrame =
-        linecolToPosition(frame.body_span.start, view.state.doc) <= idx &&
-        idx <= linecolToPosition(frame.body_span.end, view.state.doc);
-      let markAfterLoc =
-        idx > linecolToPosition(frame.location.start, view.state.doc);
-      return markInFrame && markAfterLoc;
-    });
+    // A step matches a mark if *any* frame on its stack sits in the body
+    // containing the mark and is executing at or before it. Checking the whole
+    // stack rather than just the innermost frame matters when execution never
+    // returns to the marked body, e.g. UB inside a called function: then the
+    // only steps past the call site are frames of the callee.
+    let stepRevIdx = stepsRev.findIndex(step =>
+      step.stack.frames.some(frame => {
+        let markInFrame =
+          linecolToPosition(frame.body_span.start, view.state.doc) <= idx &&
+          idx <= linecolToPosition(frame.body_span.end, view.state.doc);
+        let markAfterLoc =
+          idx > linecolToPosition(frame.location.start, view.state.doc);
+        return markInFrame && markAfterLoc;
+      })
+    );
     if (stepRevIdx === -1)
       throw new Error(
         `Could not find step for range: ${JSON.stringify(idx, undefined, 2)}`
@@ -988,6 +998,11 @@ export function renderInterpreter(
 ) {
   let root = ReactDOM.createRoot(container);
   let marks = annotations?.state_locations || [];
+  // UB always happens at the last step of the *unfiltered* trace. Remember it
+  // before filtering so the error isn't misattributed to whichever marked step
+  // happens to come last.
+  let errorStep =
+    trace.result.type === "Error" ? _.last(trace.steps) : undefined;
   let widgetRanges: number[];
   if (marks.length > 0) {
     let [sortedMarks, filteredSteps] = filterSteps(view, trace.steps, marks);
@@ -1006,7 +1021,7 @@ export function renderInterpreter(
       Decoration.widget({
         widget: new StepMarkerWidget(
           i,
-          i === trace.steps.length - 1 && trace.result.type === "Error",
+          trace.steps[i] === errorStep,
           !controls || i < step
         )
       }).range(mark)
@@ -1023,6 +1038,7 @@ export function renderInterpreter(
     <CodeContext.Provider value={view}>
       <InterpreterView
         trace={trace}
+        errorStep={errorStep}
         config={config}
         onStepUpdated={step => renderStepMarkers(step)}
       />
