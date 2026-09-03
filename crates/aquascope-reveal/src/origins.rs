@@ -557,12 +557,22 @@ pub fn render(src: &str, opts: &Options) -> Result<String> {
     .collect::<Vec<_>>()
     .join("\n");
 
-  // `does_not_compile` is the class `ferris.js` looks for, so a block that
-  // says it fails gets the same crab as every other such block in the deck.
-  let class = if opts.should_fail {
-    "code hljs does_not_compile"
+  // The crab for a block that says it does not compile, the same markup
+  // `aquascope-embed` emits. It goes in the wrapper rather than in the `pre`:
+  // the container is positioned absolutely, and `pre.code` carries `.hljs`,
+  // whose `overflow-x: auto` makes it a scroll box that clips its
+  // absolutely-positioned children and swallows their clicks. The wrapper also
+  // keeps the crab out of the code's font size, so `4.5em` measures the same
+  // here as it does inside `.aquascope`.
+  //
+  // Deliberately not the `does_not_compile` class that mdBook's `ferris.js`
+  // looks for. That script inserts its own container as a *sibling* of the
+  // block, which is what put the crab outside it -- and finding the class here
+  // too would then give a block two crabs.
+  let crab = if opts.should_fail {
+    r#"<div class="ferris-container"><img src="img/ferris/does_not_compile.svg" title="This code does not compile!" class="ferris ferris-large" /></div>"#
   } else {
-    "code hljs"
+    ""
   };
 
   // The program is not what is on the slide -- hidden lines are missing from
@@ -577,7 +587,13 @@ pub fn render(src: &str, opts: &Options) -> Result<String> {
     String::new()
   };
 
-  Ok(format!(r#"<pre class="{class}"{run}>{body}</pre>"#))
+  // The wrapper is what `.aquascope` is to an editor: it carries the frame,
+  // it is the positioned element the crab and the Run button hang off, and it
+  // is what the run output is appended to -- so the output lands inside the
+  // block's border rather than under it.
+  Ok(format!(
+    r#"<div class="origins-block"{run}>{crab}<pre class="code hljs">{body}</pre></div>"#
+  ))
 }
 
 /// Escapes a string for use as an HTML attribute value, newlines included.
@@ -737,9 +753,8 @@ mod test {
       "{html}"
     );
     // No `code` child, or reveal's highlight plugin would strip the spans.
-    assert!(
-      html.starts_with(r#"<pre class="code hljs">"#) && !html.contains("<code")
-    );
+    assert!(html.contains(r#"<pre class="code hljs">"#), "{html}");
+    assert!(!html.contains("<code"), "{html}");
   }
 
   #[test]
@@ -955,7 +970,7 @@ mod test {
   #[test]
   fn accepts_a_closing_fence_with_trailing_whitespace() {
     let html = one("```origins\nlet a = 1;\n```   \n");
-    assert!(html.ends_with("</pre>"), "{html}");
+    assert!(html.ends_with("</pre></div>"), "{html}");
     assert!(!html.contains('`'), "{html}");
   }
 
@@ -1017,8 +1032,12 @@ mod test {
   #[test]
   fn should_fail_asks_for_the_crab_and_is_not_run() {
     let html = one("```origins,shouldFail\nlet a: i32 = \"s\";\n```\n");
+    // In the wrapper, before the `pre`: `.hljs` makes the `pre` a scroll box
+    // that would clip it and swallow its clicks.
     assert!(
-      html.contains(r#"class="code hljs does_not_compile""#),
+      html.starts_with(
+        r#"<div class="origins-block"><div class="ferris-container">"#
+      ),
       "{html}"
     );
     assert!(!html.contains("data-run-code"), "{html}");

@@ -110,13 +110,21 @@
   display: inline;
 }
 
-.reveal .aquascope img {
+/* reveal gives every image a block margin and, in some themes, a frame. The
+ * crab is chrome, not content: both kinds of block cancel that, or the same
+ * crab sits `--r-block-margin` lower in one than in the other. */
+.reveal .aquascope img,
+.reveal .origins-block img {
   margin: 0;
   border: 0;
   background: none;
 }
 
-.reveal .aquascope .top-right {
+/* Above the crab, which mdBook's `ferris.css` puts at `z-index: 99`. Without
+ * this the crab covers the Run button on a `shouldFail` block and swallows the
+ * clicks on the part it overlaps. */
+.reveal .aquascope .top-right,
+.reveal .origins-block .top-right {
   z-index: 100 !important;
 }
 
@@ -184,7 +192,7 @@
 /* `b` is what the converter emits for bold, and rustc bolds every coloured
  * span. Reveal's `strong` weight is heavy enough to blur a monospace glyph at
  * projector resolution. */
-.reveal .aquascope .result b,
+.reveal .result b,
 .aq-output-modal b {
   font-weight: 600;
 }
@@ -197,8 +205,8 @@
  * both buttons should sit like the code and interpreter controls, which is
  * what `.cm-button` already gives them. Hover reveal comes from
  * `.aquascope:hover .cm-button`, so there is nothing to restate here. */
-.reveal .aquascope .result-container .result-close,
-.reveal .aquascope .result-container .result-expand {
+.reveal .result-container .result-close,
+.reveal .result-container .result-expand {
   position: static;
   padding: var(--aq-button-padding);
   line-height: normal;
@@ -207,9 +215,38 @@
 /* `.top-right` pins the editor's controls at 8px/2px, hard against the corner
  * of the block. The result box is a plain panel of text, so its controls are
  * inset the way the interpreter's `.actions` are instead. */
-.reveal .aquascope .result-container .top-right {
+.reveal .result-container .top-right {
+  position: absolute;
+  z-index: 100;
   top: 1rem;
   right: 1rem;
+}
+
+/* An origins block's output sits in the slide rather than inside an editor, so
+ * reveal's own `pre` styling -- a shadowed card at 90% width and its own font
+ * size -- would reach it and make the same diagnostic look different in the
+ * two kinds of block. These are the rules `.aquascope` applies to its own. */
+.reveal .result-container pre,
+.reveal .result-container code {
+  font-size: inherit;
+  line-height: inherit;
+  box-shadow: none;
+}
+
+.reveal .result-container pre {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+}
+
+/* The output reads at the size of the code it came from. The font stack is
+ * repeated because the result is a bare `code` element that would otherwise
+ * fall back to the browser's generic monospace. */
+.reveal .result-container pre > .result {
+  margin-block-start: 0;
+  font-size: var(--aq-code-font-size, 0.925em);
+  font-family: "Source Code Pro", Consolas, "Ubuntu Mono", Menlo,
+    "DejaVu Sans Mono", monospace, monospace;
 }
 
 /* Aquascope sizes its controls for a book read at arm's length: 14px glyphs in
@@ -233,6 +270,144 @@
   min-width: var(--aq-button-min-width);
 }
 
+/* ===========================================================================
+ * ```origins blocks: the origin notation, and the chrome that makes a block
+ * look like an Aquascope one. Moved here from the deck that grew it, because
+ * the fence lives in this crate -- a deck should get the rendering for free
+ * and override only the colours.
+ * ======================================================================== */
+
+/* Origin notation. An origin is drawn as a coloured box around the code the
+ * data came from, and the lifetime in a reference's type is written in that
+ * same colour -- so the type visibly records where the reference came from.
+ * The origin classes carry only the colour; .oframe and .oname carry the rest.
+ *
+ * These markers live INSIDE the code, so an origin-annotated block cannot be
+ * highlighted at runtime: reveal's highlight plugin rewrites the innerHTML of
+ * every `pre code` it finds and would strip the spans. Such a block instead
+ * carries highlighting baked in -- the deck's own highlight.css classes, so it
+ * matches the runtime-highlighted blocks on other slides -- and is written as
+ * `pre.code.hljs` with no `code` child, which that plugin never selects. */
+.reveal .origin-a {
+  --o: #d70025;
+  --o-pale: hsl(348, 90%, 96%);
+}
+
+/* Teal rather than the theme's blue: blue is hljs-title, which paints every
+ * call name in these snippets, and an origin must not share a hue with a
+ * token class. Red is safe -- highlight.css spends it on hljs-variable and
+ * friends, none of which a Rust snippet produces. */
+.reveal .origin-b {
+  --o: #00736e;
+  --o-pale: hsl(177, 45%, 95%);
+}
+
+/* Magenta rather than another violet: highlight.css spends purple on keywords,
+ * which every one of these snippets is full of. */
+.reveal .origin-c {
+  --o: #b5008f;
+  --o-pale: hsl(310, 85%, 96%);
+}
+
+/* One box, two jobs: .oframe draws it around the code an origin refers to,
+ * .oname draws it around that origin's lifetime inside a type. Vertical
+ * padding and border on an inline box do not grow its line box, so a box
+ * frames code without shifting the lines around it -- the line-height on
+ * pre.code leaves the room for it. */
+.reveal .oframe,
+.reveal .oname {
+  /* A box carrying no origin-* class is how a generic lifetime parameter is
+   * drawn: a variable, not one of the concrete origins a caller instantiates
+   * it with. Dark grey rather than the text colour: enough to read as a
+   * deliberate choice of "no colour" instead of a box whose colour failed to
+   * load, while staying distinct from the near-black .oexact box, which is
+   * also dashed. Lightness is the only number worth tuning here. */
+  --o-neutral: hsl(0, 0%, 30%);
+
+  padding: 0.05em 0.25em;
+  border: 0.08em solid var(--o, var(--o-neutral));
+  border-radius: 0.2em;
+  background: var(--o-pale, transparent);
+}
+
+/* A box with no origin is drawn grey and dashed: nothing about it is settled,
+ * where a concrete origin's box is a solid line in its own colour.
+ *
+ * `border-style` rather than a custom property on purpose. Custom properties
+ * inherit, so a neutral box sitting inside a coloured frame -- a generic
+ * lifetime written inside the origin box around the code it is bound to --
+ * would pick up that frame's --o and stop being neutral; `--o: initial` makes
+ * it guaranteed-invalid, which is what sends var() to its fallback. Border
+ * properties do not inherit, so the style needs no such guard. */
+.reveal .oframe:not([class*="origin-"]),
+.reveal .oname:not([class*="origin-"]) {
+  --o: initial;
+  --o-pale: initial;
+  border-style: dashed;
+}
+
+/* What is actually borrowed, where the origin around it over-approximates:
+ * dashed, uncoloured, and drawn inside the origin's own box. */
+.reveal .oexact {
+  padding: 0.05em 0.2em;
+  border: 0.08em dashed currentColor;
+  border-radius: 0.2em;
+}
+
+/* The lifetime reads as the same box as its origin, with the name written in
+ * it. */
+.reveal .oname {
+  color: var(--o, inherit);
+  font-weight: 700;
+}
+
+/* Hand-annotated code: a `pre` with no `code` child (see above). Reveal's theme
+ * styles `pre` as a shadowed card at its own font size, all of which has to go
+ * so this matches the deck's other code. The `hljs` class on the same element
+ * supplies the code background, exactly as it does on a highlighted block.
+ * Line-height carries the origin frames: vertical border and padding on an
+ * inline box do not grow its line box, so a frame overflows into the leading
+ * instead of shifting the lines around it. */
+/* Never put `fragment` on this element itself. reveal.css carries
+ * `.reveal .hljs:not(:first-child).fragment { position: absolute; top: 0;
+ * left: 0 }` for stepped code highlighting -- several `code.hljs` fragments
+ * stacked inside one `pre` -- and a block with both classes gets yanked to the
+ * corner of the slide. Wrap the block in a `div.fragment` instead. */
+/* The frame, and the block the crab, the Run button and the run output all
+ * hang off -- exactly the job `.aquascope` does for an editor. It cannot be
+ * the `pre`: that carries `.hljs`, whose `overflow-x: auto` makes it a scroll
+ * box, which clips absolutely-positioned children, swallows the clicks on the
+ * part of a button that hangs past its edge, and would keep the output
+ * outside the border. */
+.reveal .origins-block {
+  position: relative;
+  border: 2px dashed var(--theme-popup-border);
+  background: var(--code-bg);
+  margin: 0.6em 0;
+}
+
+.reveal pre.code {
+  width: auto;
+  /* The wrapper owns the frame and the spacing around it. */
+  margin: 0;
+  border: 0;
+  background: none;
+  padding: 0.45em 0.7em;
+  box-shadow: none;
+  text-align: left;
+  /* reveal.css carries `.reveal .hljs { min-height: 100% }` so that a
+   * `code.hljs` fills the `pre` around it. Here `hljs` is on the `pre` itself
+   * -- that is what supplies the code background -- and the same rule stretches
+   * the block over the whole slide, so it has to be cancelled. */
+  min-height: 0;
+  /* Leading enough for the origin boxes to clear each other: their border and
+   * padding add about 0.13em above and below the text. */
+  line-height: 1.5;
+  font-size: var(--aq-code-font-size);
+  font-family: "Source Code Pro", Consolas, "Ubuntu Mono", Menlo,
+    "DejaVu Sans Mono", monospace, monospace;
+}
+
 /* A runnable ```origins block. Those are baked `pre`s rather than editors, so
  * none of Aquascope's `.aquascope`-scoped chrome reaches them: the Run button,
  * its hover reveal and the result box's controls are all restated here, with
@@ -241,18 +416,16 @@
  * The controls sit *inside* the `pre` -- which is what `position: relative`
  * here is for -- because `.code-row > .snug` and the `.swap` grid both key off
  * the `pre`'s parent, and a wrapper would move slides around. */
-.reveal pre[data-run-code] {
-  position: relative;
-}
-
-.reveal pre[data-run-code] .top-right {
-  z-index: 10;
+/* Direct child only. The result box has a `.top-right` of its own, and it is
+ * nested in this block -- without the `>` this rule would come later in the
+ * file and drag the result's controls up to the block's corner. */
+.reveal .origins-block > .top-right {
   position: absolute;
   top: 8px;
   right: 2px;
 }
 
-.reveal pre[data-run-code] .cm-button,
+.reveal .origins-block .cm-button,
 .reveal .result-container .cm-button {
   background-color: var(--aq-button-background);
   color: var(--aq-button-text);
@@ -271,29 +444,18 @@
 /* Hidden until the block is hovered, the way the editor's controls are. The
  * result box counts as part of the block it belongs to, so hovering either
  * shows both. */
-.reveal pre[data-run-code]:hover .cm-button,
+.reveal .origins-block:hover .cm-button,
 .reveal .result-container:hover .cm-button {
   opacity: 1;
 }
 
-/* The result box of an origins block, matching the editor's own: a panel
- * under the code with its controls inset rather than hard against a corner. */
-.reveal .result-container {
-  position: relative;
-}
-
-.reveal .result-container .top-right {
-  position: absolute;
-  z-index: 100;
-  top: 1rem;
-  right: 1rem;
-}
-
-.reveal .result-container .result-close,
-.reveal .result-container .result-expand {
-  position: static;
-  padding: var(--aq-button-padding);
-  line-height: normal;
+/* The colour change on hover, which `.aquascope .cm-button:hover` gives the
+ * editor's controls and nothing was giving these. */
+.reveal .origins-block .cm-button:hover,
+.reveal .result-container .cm-button:hover {
+  background-color: var(--aq-button-background-hover);
+  color: var(--aq-button-text-hover);
+  border-color: var(--aq-button-border-hover);
 }
 
 /* The modal is appended to <body>, outside `.reveal`, so none of reveal's

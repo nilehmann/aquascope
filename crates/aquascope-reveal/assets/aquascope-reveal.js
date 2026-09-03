@@ -149,7 +149,7 @@
   // every style for the result box apply here without knowing the difference.
   var DEFAULT_RUN_URL = "https://play.rust-lang.org/evaluate.json";
 
-  function runOrigins(pre, result) {
+  function runOrigins(block, result) {
     result.innerHTML =
       '<button type="button" class="cm-button result-close" title="Hide output">✕</button>' +
       '<pre><code class="result hljs language-bash">Running...</code></pre>';
@@ -165,7 +165,7 @@
       body: JSON.stringify({
         version: "stable",
         optimize: "0",
-        code: pre.getAttribute("data-run-code"),
+        code: block.getAttribute("data-run-code"),
         edition: "2021"
       })
     })
@@ -188,21 +188,24 @@
       });
   }
 
-  // Attached rather than rendered server-side: `.code-row > .snug` and the
-  // `.swap` grid both key off the `pre`'s parent, so wrapping it in a div
-  // would move slides around.
+  // Both the controls and the output go inside `.origins-block`, which is what
+  // `.aquascope` is to an editor: the positioned element carrying the frame.
+  // Not inside the `pre` -- it carries `.hljs`, whose `overflow-x: auto` makes
+  // it a scroll box that clips absolutely-positioned children and eats the
+  // part of a button that hangs past its edge -- and not as a sibling of the
+  // block, which would put the output outside the border.
   function addRunButtons(slide) {
-    var blocks = slide.querySelectorAll("pre[data-run-code]");
+    var blocks = slide.querySelectorAll(".origins-block[data-run-code]");
     for (var i = 0; i < blocks.length; i++) {
-      var pre = blocks[i];
-      if (pre.dataset.runReady) {
+      var block = blocks[i];
+      if (block.dataset.runReady) {
         continue;
       }
-      pre.dataset.runReady = "1";
+      block.dataset.runReady = "1";
 
       var result = document.createElement("div");
       result.className = "result-container";
-      pre.parentNode.insertBefore(result, pre.nextSibling);
+      block.appendChild(result);
 
       var button = document.createElement("button");
       button.type = "button";
@@ -211,20 +214,17 @@
       button.textContent = "▶";
       button.addEventListener(
         "click",
-        (function (pre, result) {
+        (function (block, result) {
           return function () {
-            runOrigins(pre, result);
+            runOrigins(block, result);
           };
-        })(pre, result)
+        })(block, result)
       );
 
-      // Inside the `pre`, not beside it: see the CSS note. The glyph joins
-      // the block's text content, which costs a stray character if the code
-      // is selected and copied.
       var controls = document.createElement("div");
       controls.className = "top-right";
       controls.appendChild(button);
-      pre.appendChild(controls);
+      block.appendChild(controls);
     }
   }
 

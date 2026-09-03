@@ -181,7 +181,35 @@ let r: &'!a Vec<i32> = &v;
 Hidden lines are what make `run` useful at all: a Run button on a fragment
 could only ever print a compile error.
 
-The deck supplies the colours. A rendered block carries `oframe origin-<letter>`
+### Styling
+
+A block is rendered as
+
+```html
+<div class="origins-block"><pre class="code hljs">…</pre></div>
+```
+
+and the wrapper is deliberate: it is what `.aquascope` is to an editor. It
+carries the dashed frame, it is the positioned element the crab and the Run
+button hang off, and the run output is appended to it -- so the output lands
+inside the border, as the editor's does. None of that can live on the `pre`,
+because `pre.code` carries `.hljs`, whose `overflow-x: auto` makes it a scroll
+box: it clips absolutely-positioned children, swallows clicks on the part of a
+button that hangs past its edge, and gives the crab the code's font size
+instead of the slide's, so `4.5em` would measure smaller than in an editor.
+
+The stylesheet this crate ships renders all of that on its own -- the box
+notation, the frame, the button and its hover states, and the run output --
+once, for both kinds of block, so the two read as one thing on a slide. A
+`shouldFail` block emits the same `.ferris-container` markup `aquascope-embed`
+does. mdBook's `ferris.js` is not involved and must not be: it inserts its own
+container as a *sibling* of the block, which is what puts the crab outside it.
+
+A deck's own stylesheet is linked after this one, so it can override anything.
+The colours are meant to be overridden: redefine `--o` and `--o-pale` on a
+`.origin-<letter>` class.
+
+A rendered block carries `oframe origin-<letter>`
 for a box around code, `oname origin-<letter>` for a boxed lifetime, the same
 two without the `origin-` class for the neutral forms, and `oexact` for the
 dashed box; everything else is highlight.css's own `hljs-*` classes, so a
@@ -189,10 +217,9 @@ rendered block is indistinguishable from the Aquascope-highlighted ones on
 other slides. A boxed lifetime carries no `hljs-symbol` of its own, because
 `.oname` owns its colour and weight.
 
-Only the letters the deck's stylesheet gives an `.origin-*` rule have colours,
-so `'!x` for an undefined letter draws neutral -- indistinguishable from `'?x`
-while claiming something different. This crate cannot see the stylesheet, so
-that one is on the deck.
+Only `a`, `b` and `c` have colours here. `'!x` for any other letter draws
+neutral -- indistinguishable from `'?x` while claiming something different --
+until a stylesheet gives `.origin-x` an `--o` of its own.
 
 Two things follow from how this is rendered, and are easy to trip over when
 hand-writing the equivalent HTML instead:
