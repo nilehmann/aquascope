@@ -75,6 +75,86 @@ shown, for content that would otherwise leave a gap in the layout.
 Aquascope owns the `step`, `step-marker`, `step-header`, `step-button` and
 `step-table-*` class names. Do not reuse that prefix for slide machinery.
 
+## Origin boxes
+
+A deck teaching lifetimes wants to draw a coloured box around the code a
+reference borrows from, and to draw the lifetime in a type as that same box. An
+```` ```origins ```` fence holds Rust with markers saying where those boxes go,
+and is rendered at build time into a syntax-highlighted `<pre>`:
+
+`````markdown
+```origins
+fn longest<'?a>(v1: &'?a Vec<i32>, v2: &'?a Vec<i32>) -> &'?a Vec<i32> {
+    if v1.len() > v2.len() { v1 } else { v2 }
+}
+
+let v1: Vec<i32> = [[a:vec![1, 2, 3]:]];
+let v2: Vec<i32> = [[a:vec![4, 5, 6]:]];
+let r: &'!a Vec<i32> = longest(&v1, &v2);
+```
+`````
+
+**No box appears without a marker.** A bare `'a` is ordinary Rust syntax, so
+every box on the slide is one the source asked for -- which is what lets a
+single block hold a generic definition beside the concrete origin a caller
+instantiates it with, as above: the definition's `'a` is a variable, the
+caller's is the origin the two `vec!`s live in.
+
+| marker | draws |
+| --- | --- |
+| `'a` | a lifetime as ordinary syntax: no box |
+| `'?a` | a **neutral box**: a variable ranging over origins, which is what a generic lifetime parameter on a definition is |
+| `'!a` | a box in **origin `a`'s colour**: the concrete origin `a` |
+| `[[a:TEXT:]]` | `TEXT` framed in origin `a`'s box; nests |
+| `[[?:TEXT:]]` | `TEXT` framed in a box with no origin colour |
+| `[[*:TEXT:]]` | a tight dashed box: what is *actually* borrowed, where the origin around it over-approximates |
+
+The sigils are sugar: `'!a` is `[[a:'a:]]` and `'?a` is `[[?:'a:]]`. They exist
+because a deck writes far more lifetimes than frames, and a bracket around each
+one would bury the code. The general form still says something the sigils
+cannot -- `[[b:'a:]]` boxes a lifetime *named* `a` in origin *b*'s colour, so a
+lifetime's spelling need not be its origin's letter.
+
+`'?` and `'!` are markers only when an identifier character follows, so
+`let c = '!';` is still a char literal.
+
+The frame close is `:]]` rather than `]]` because framed text usually ends in a
+bracket, as in `vec![1, 2, 3]`. Everything between the colons is kept verbatim,
+spaces included: it lands inside the box, so padding there would shift the code
+away from the lines around it.
+
+The fence takes no specifiers. A block still carrying one fails the build with
+a message naming the sigils.
+
+The deck supplies the colours. A rendered block carries `oframe origin-<letter>`
+for a box around code, `oname origin-<letter>` for a boxed lifetime, the same
+two without the `origin-` class for the neutral forms, and `oexact` for the
+dashed box; everything else is highlight.css's own `hljs-*` classes, so a
+rendered block is indistinguishable from the Aquascope-highlighted ones on
+other slides. A boxed lifetime carries no `hljs-symbol` of its own, because
+`.oname` owns its colour and weight.
+
+Only the letters the deck's stylesheet gives an `.origin-*` rule have colours,
+so `'!x` for an undefined letter draws neutral -- indistinguishable from `'?x`
+while claiming something different. This crate cannot see the stylesheet, so
+that one is on the deck.
+
+Two things follow from how this is rendered, and are easy to trip over when
+hand-writing the equivalent HTML instead:
+
+- The output is a `pre` with **no `code` child**. reveal's highlight plugin
+  rewrites the innerHTML of every `pre code` it finds, which would strip the
+  boxes; a `pre` on its own is never selected.
+- A blank line in the block is emitted as a line holding one space, because a
+  truly blank line would end the raw-HTML block the markdown renderer sees and
+  wrap the rest of the `pre` in a `<p>`.
+
+Rust is lexed with `ra-ap-rustc_lexer`, rustc's own lexer, so comments,
+strings, char literals, raw strings and lifetimes are delimited exactly as
+rustc delimits them -- `'x'` is a char literal and not a lifetime named `x`.
+Which identifiers are keywords, types or call sites stays a heuristic, the same
+one highlight.js applies.
+
 ## Keys
 
 Slide navigation is reveal's own: Left/Right between slides, Up/Down within a

@@ -1,6 +1,7 @@
 //! Builds a reveal.js deck from a markdown file, running Aquascope over every
 //! ```aquascope fenced block at build time and baking the results into the
-//! page. See `crates/aquascope-reveal/README.md`.
+//! page, and rendering every ```origins block into an annotated `<pre>`. See
+//! `crates/aquascope-reveal/README.md`.
 
 use std::{
   fs,
@@ -17,6 +18,7 @@ mod attributes;
 mod deck;
 mod frontmatter;
 mod lint;
+mod origins;
 mod run;
 mod serve;
 
@@ -151,7 +153,16 @@ fn build(args: &Args, preprocessor: &mut AquascopePreprocessor) -> Result<()> {
   let (front, body) = frontmatter::split(&source)
     .with_context(|| format!("in {}", args.input.display()))?;
 
-  let content = apply(body, preprocessor.replacements(body)?);
+  // Both passes return byte ranges into `body` and never overlap: one
+  // claims ```aquascope fences, the other ```origins fences.
+  // `body` is a suffix of `source`, so the front matter's line count is what
+  // an origins diagnostic has to add to name the line the author sees.
+  let first_body_line =
+    source[.. source.len() - body.len()].lines().count() + 1;
+
+  let mut edits = preprocessor.replacements(body)?;
+  edits.extend(origins::replacements(body, first_body_line)?);
+  let content = apply(body, edits);
   preprocessor.save_cache();
 
   let slides = deck::Deck::parse(&content).to_html();

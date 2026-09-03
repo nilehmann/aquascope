@@ -23,6 +23,11 @@ serde_json = "1"
 serde_yaml = "0.9"
 pulldown-cmark = { version = "0.9", default-features = false }
 mdbook-aquascope = { version = "0.4", path = "../mdbook-aquascope" }
+# rustc's own lexer, for the ```origins blocks: comments, strings, char
+# literals and lifetimes come out delimited exactly as rustc delimits them.
+# Pinned exactly, as the crate offers no stability guarantees and its
+# releases track nightly.
+ra-ap-rustc_lexer = "=0.174.0"
 # Renders rustc's coloured diagnostics into the slide. Chosen for
 # `four_bit_var_prefix`, which emits CSS variables a deck can restyle.
 ansi-to-html = "0.2.3"
