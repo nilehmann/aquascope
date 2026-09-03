@@ -69,6 +69,65 @@ pub fn evaluate(body: &[u8]) -> Vec<u8> {
   serde_json::json!({ "result": result }).to_string().into_bytes()
 }
 
+/// Whether `code` has a `main` at the top level, which decides whether it is
+/// compiled as a program or as a set of items.
+fn defines_main(code: &str) -> bool {
+  code.lines().any(|line| {
+    let line = line.trim_start();
+    line.starts_with("fn main") || line.starts_with("pub fn main")
+  })
+}
+
+/// Compiles `code` without running or linking it, for the build-time check on
+/// ```origins blocks. `Ok(())` means it compiled; the error is rustc's own
+/// output, uncoloured, since a build log is not a slide.
+///
+/// `--emit=metadata` stops before codegen, which is what keeps this cheap
+/// enough to run over every block on every build without a cache.
+pub fn check(code: &str) -> Result<(), String> {
+  let dir = scratch_dir().map_err(|e| format!("no build directory: {e}"))?;
+  let source = dir.join(SOURCE);
+  let result = (|| {
+    fs::write(&source, code)
+      .map_err(|e| format!("could not write {}: {e}", source.display()))?;
+
+    let output = Command::new("rustc")
+      .current_dir(&dir)
+      .arg("--edition")
+      .arg(edition(None))
+      .arg("--emit=metadata")
+      .arg("--crate-type")
+      // A block is either a whole program or a set of items -- a struct and
+      // an impl, say. `bin` reports E0601 for a missing `main` even under
+      // `--emit=metadata`, so an item-only block has to be a `lib` or every
+      // one of them would read as broken.
+      .arg(if defines_main(code) { "bin" } else { "lib" })
+      .arg("--error-format=short")
+      .arg("-A")
+      // A slide shows the code that makes its point and nothing else, so
+      // unused names are the rule rather than a mistake.
+      .arg("unused")
+      .arg(SOURCE)
+      .output()
+      .map_err(|e| {
+        format!(
+          "could not run rustc: {e}\n\
+           ```origins blocks are compiled at build time, so rustc has to be \
+           on PATH."
+        )
+      })?;
+
+    if output.status.success() {
+      Ok(())
+    } else {
+      Err(strip_ansi(&String::from_utf8_lossy(&output.stderr)).trim().to_string())
+    }
+  })();
+
+  let _ = fs::remove_dir_all(&dir);
+  result
+}
+
 fn compile_and_run(request: &Request) -> String {
   let dir = match scratch_dir() {
     Ok(dir) => dir,

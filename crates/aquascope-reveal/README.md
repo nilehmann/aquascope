@@ -123,8 +123,63 @@ bracket, as in `vec![1, 2, 3]`. Everything between the colons is kept verbatim,
 spaces included: it lands inside the box, so padding there would shift the code
 away from the lines around it.
 
-The fence takes no specifiers. A block still carrying one fails the build with
-a message naming the sigils.
+### Compiling, and the Run button
+
+Every block is compiled at build time, because a block that is really Rust
+should be able to prove it: a typo on a slide is otherwise found in the
+lecture. Three specifiers say what a block is:
+
+| fence | at build time | on the slide |
+| --- | --- | --- |
+| ```` ```origins ```` | compiled; a failure fails the build | — |
+| ```` ```origins,run ```` | compiled | a Run button |
+| ```` ```origins,shouldFail ```` | compiled; a *success* fails the build | the `does_not_compile` crab |
+| ```` ```origins,notation ```` | not compiled | — |
+
+`shouldFail` is for a block whose compile error is the point of the slide.
+`notation` is for one that is not a program at all -- a bare signature, or a
+body elided to `{ ... }` -- and cannot be combined with the other two.
+
+The program a block is compiled as is not the text on the slide. The markers
+are translated back into the Rust they annotate, which is possible precisely
+because the sigils say which lifetimes are notation:
+
+| in the block | in the program |
+| --- | --- |
+| `[[a:…:]]`, `[[?:…:]]`, `[[*:…:]]` | erased |
+| `'!a` | `'_` -- a concrete origin is the lifetime inference would pick, and is not nameable where the notation writes it |
+| `'?a` | `'a` |
+| `'a` | `'a` |
+
+A block with a `main` is compiled as a program, one without as a set of items,
+so a lone `struct` and `impl` check without complaint. `unused` warnings are
+allowed: a slide shows what makes its point and nothing else.
+
+`run` gives the block a button that compiles and runs it, the same way the
+Aquascope editor's does -- posting to the Rust playground, or to
+`aquascope-reveal --serve` itself when the deck is being served, so a lecture
+needs no network. The output box, its close and expand buttons and the
+full-size modal are the editor's, so the two kinds of block behave alike.
+
+### Hidden lines
+
+A line whose first non-blank characters are `# ` is compiled but not shown.
+This is mdBook's convention, and it is what carries the context a snippet
+needs without putting it on the page: a `use`, the `fn main` around a
+fragment, a helper the slide is not about. `##` at the start of a line is an
+escaped `#`, for a block that means to show one.
+
+`````markdown
+```origins,run
+# fn main() {
+let mut v: Vec<i32> = [[a:vec![1, 2, 3]:]];
+let r: &'!a Vec<i32> = &v;
+# }
+```
+`````
+
+Hidden lines are what make `run` useful at all: a Run button on a fragment
+could only ever print a compile error.
 
 The deck supplies the colours. A rendered block carries `oframe origin-<letter>`
 for a box around code, `oname origin-<letter>` for a boxed lifetime, the same

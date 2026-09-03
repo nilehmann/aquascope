@@ -83,7 +83,58 @@ const PRIMS: &[&str] = &[
   "usize", "isize", "f32", "f64", "bool", "char", "str",
 ];
 
-/// Lifetimes drawn as neutral boxes.
+/// What a block asks for beyond being rendered.
+#[derive(Debug, Default, PartialEq)]
+pub struct Options {
+  /// Give the block a Run button.
+  run: bool,
+  /// The block is expected not to compile, and says so on the slide.
+  should_fail: bool,
+  /// The block is not a program: a bare signature, or a body elided to
+  /// `{ ... }`. Not compiled at all.
+  notation: bool,
+}
+
+impl Options {
+  fn parse(spec: &str) -> Result<Options> {
+    let mut opts = Options::default();
+    for entry in spec.split(',').map(str::trim).filter(|e| !e.is_empty()) {
+      match entry {
+        "run" => opts.run = true,
+        "shouldFail" => opts.should_fail = true,
+        "notation" => opts.notation = true,
+        _ => bail!(
+          "unknown ```origins specifier `{entry}`, expected one of run, \
+           shouldFail, notation"
+        ),
+      }
+    }
+    if opts.notation && (opts.run || opts.should_fail) {
+      bail!(
+        "`notation` says the block is not a program, so it cannot also be \
+         `run` or `shouldFail`"
+      );
+    }
+    Ok(opts)
+  }
+
+  /// Whether the block is compiled at build time. Checking is the default: a
+  /// block that is really code should be able to prove it.
+  fn checked(&self) -> bool {
+    !self.notation
+  }
+}
+
+/// A block's compilable form, for the build-time check.
+#[derive(Debug)]
+pub struct Program {
+  /// Line the fence opened on, for diagnostics.
+  pub line: usize,
+  pub code: String,
+  pub should_fail: bool,
+}
+
+/// A `<span>` to wrap around a byte range of the code.
 #[derive(Debug)]
 struct Span {
   range: Range<usize>,
@@ -92,6 +143,90 @@ struct Span {
   /// box framing exactly one token frames the highlighting rather than
   /// splitting it.
   is_marker: bool,
+}
+
+/// Splits a block body into the lines that are shown and the whole program.
+///
+/// A line whose first non-blank characters are `# ` is compiled but not
+/// displayed, which is how mdBook and Rust By Example carry the context a
+/// snippet needs without putting it on the page: a `use`, a helper the slide
+/// is not about, the `fn main` around a fragment. `##` at the start of a line
+/// is an escaped `#`, for the rare block that means to show one.
+fn split_hidden(body: &str) -> (String, String) {
+  let (mut shown, mut all) = (Vec::new(), Vec::new());
+  for line in body.split('\n') {
+    let indent = &line[.. line.len() - line.trim_start().len()];
+    let rest = line.trim_start();
+    if let Some(code) = rest
+      .strip_prefix("# ")
+      .or(rest.strip_prefix("#").filter(|r| r.is_empty()))
+    {
+      all.push(format!("{indent}{code}"));
+    } else if let Some(code) = rest.strip_prefix("##") {
+      shown.push(format!("{indent}#{code}"));
+      all.push(format!("{indent}#{code}"));
+    } else {
+      shown.push(line.to_string());
+      all.push(line.to_string());
+    }
+  }
+  (shown.join("\n"), all.join("\n"))
+}
+
+/// The Rust a block stands for: markers taken out, and the notation in them
+/// turned back into the code it annotates.
+///
+/// The sigils already say which lifetimes are annotation and which are real
+/// Rust, which is the whole reason this translation is possible. A concrete
+/// origin is the lifetime the compiler infers, so `'!a` becomes `'_`; a
+/// generic parameter is a parameter, so `'?a` becomes `'a`.
+fn program(all: &str) -> String {
+  let mut out = String::new();
+  let bytes = all.as_bytes();
+  let mut i = 0;
+  while i < bytes.len() {
+    if bytes[i ..].starts_with(b"[[")
+      && i + 4 <= bytes.len()
+      && bytes[i + 3] == b':'
+      && (bytes[i + 2].is_ascii_lowercase()
+        || bytes[i + 2] == b'*'
+        || bytes[i + 2] == b'?')
+    {
+      i += 4;
+      continue;
+    }
+    if bytes[i ..].starts_with(b":]]") {
+      i += 3;
+      continue;
+    }
+    if bytes[i] == b'\''
+      && matches!(bytes.get(i + 1), Some(b'?' | b'!'))
+      && bytes
+        .get(i + 2)
+        .is_some_and(|c| c.is_ascii_alphabetic() || *c == b'_')
+    {
+      let concrete = bytes[i + 1] == b'!';
+      i += 2;
+      let start = i;
+      while i < bytes.len()
+        && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_')
+      {
+        i += 1;
+      }
+      // A concrete origin is not nameable in Rust where the notation writes
+      // it -- inside a `let`, say -- and does not need to be: it is exactly
+      // the lifetime inference would pick.
+      out.push_str(if concrete { "'_" } else { "'" });
+      if !concrete {
+        out.push_str(&all[start .. i]);
+      }
+      continue;
+    }
+    let ch = all[i ..].chars().next().unwrap();
+    out.push(ch);
+    i += ch.len_utf8();
+  }
+  out
 }
 
 /// The class a frame key asks for. `*` is the dashed box, `?` a box with no
@@ -323,13 +458,14 @@ fn push_escaped(out: &mut String, text: &str) {
 }
 
 /// Renders one block's worth of marked-up Rust.
-pub fn render(src: &str) -> Result<String> {
+pub fn render(src: &str, opts: &Options) -> Result<String> {
   // The block's last line ends in a newline that belongs to the closing fence,
   // not to the code. Exactly that one comes off, so the rendered block has the
   // lines the author wrote -- blank ones at either end included.
   let src = src.strip_suffix('\n').unwrap_or(src);
   let src = src.strip_suffix('\r').unwrap_or(src);
-  let (code, mut markers) = strip(src)?;
+  let (shown, _) = split_hidden(src);
+  let (code, mut markers) = strip(&shown)?;
 
   // A frame whose text is exactly one lifetime is that lifetime's own box, so
   // it takes `.oname` -- the same box with the name written in it, rather than
@@ -421,7 +557,44 @@ pub fn render(src: &str) -> Result<String> {
     .collect::<Vec<_>>()
     .join("\n");
 
-  Ok(format!(r#"<pre class="code hljs">{body}</pre>"#))
+  // `does_not_compile` is the class `ferris.js` looks for, so a block that
+  // says it fails gets the same crab as every other such block in the deck.
+  let class = if opts.should_fail {
+    "code hljs does_not_compile"
+  } else {
+    "code hljs"
+  };
+
+  // The program is not what is on the slide -- hidden lines are missing from
+  // it and the markers are still in it -- so a runnable block carries its own
+  // source. Newlines are escaped along with everything else: an attribute
+  // spanning lines would put a blank line inside the raw-HTML block, which is
+  // the one thing that breaks it.
+  let run = if opts.run {
+    let (_, all) = split_hidden(src);
+    format!(" data-run-code=\"{}\"", attribute(&program(&all)))
+  } else {
+    String::new()
+  };
+
+  Ok(format!(r#"<pre class="{class}"{run}>{body}</pre>"#))
+}
+
+/// Escapes a string for use as an HTML attribute value, newlines included.
+fn attribute(text: &str) -> String {
+  let mut out = String::new();
+  for ch in text.chars() {
+    match ch {
+      '&' => out.push_str("&amp;"),
+      '<' => out.push_str("&lt;"),
+      '>' => out.push_str("&gt;"),
+      '"' => out.push_str("&quot;"),
+      '\n' => out.push_str("&#10;"),
+      '\r' => out.push_str("&#13;"),
+      _ => out.push(ch),
+    }
+  }
+  out
 }
 
 /// Every ```origins fence in `content`, as a byte range to splice HTML over.
@@ -434,7 +607,7 @@ pub fn render(src: &str) -> Result<String> {
 pub fn replacements(
   content: &str,
   first_line: usize,
-) -> Result<Vec<Replacement>> {
+) -> Result<(Vec<Replacement>, Vec<Program>)> {
   /// The backtick count of a fence line, and whatever follows it.
   fn fence(line: &str) -> Option<(usize, &str)> {
     let trimmed = line.trim_start();
@@ -444,6 +617,7 @@ pub fn replacements(
   }
 
   let mut out = Vec::new();
+  let mut programs = Vec::new();
   let mut lines = content.split_inclusive('\n').enumerate();
   let mut offset = 0;
 
@@ -484,33 +658,71 @@ pub fn replacements(
       bail!("{}: unclosed ```origins fence", first_line + n);
     };
 
-    if !spec.is_empty() {
-      bail!(
-        "{}: ```origins takes no specifiers, but found `{}`. Every box is \
-         asked for in the code now: mark a generic lifetime `'?a`, a concrete \
-         one `'!a`, and leave a lifetime that is just syntax bare",
-        first_line + n,
-        spec.trim_start_matches(',')
-      );
-    }
+    let line = first_line + n;
+    let opts = Options::parse(spec)
+      .with_context(|| format!("in the ```origins block at line {line}"))?;
 
-    let html = render(&body).with_context(|| {
-      format!("in the ```origins block at line {}", first_line + n)
-    })?;
+    let html = render(&body, &opts)
+      .with_context(|| format!("in the ```origins block at line {line}"))?;
     out.push((start .. end, html));
+
+    if opts.checked() {
+      let (_, all) = split_hidden(body.strip_suffix('\n').unwrap_or(&body));
+      programs.push(Program {
+        line,
+        code: program(&all),
+        should_fail: opts.should_fail,
+      });
+    }
   }
 
-  Ok(out)
+  Ok((out, programs))
+}
+
+/// Compiles every checked block, reporting what disagreed with its fence.
+///
+/// Checking is the default because a block that is really Rust should be able
+/// to prove it: a typo on a slide is otherwise found in the lecture. The two
+/// escapes say which kind of not-compiling a block means -- `shouldFail` for a
+/// block whose error is the point, `notation` for one that is not a program.
+pub fn check(programs: &[Program]) -> Vec<String> {
+  let mut problems = Vec::new();
+  for p in programs {
+    match (crate::run::check(&p.code), p.should_fail) {
+      (Ok(()), false) | (Err(_), true) => {}
+      (Ok(()), true) => problems.push(format!(
+        "{}: the ```origins block is marked shouldFail but compiles",
+        p.line
+      )),
+      (Err(e), false) => problems.push(format!(
+        "{}: the ```origins block does not compile. Mark it shouldFail if \
+         that is the point of the slide, or notation if it is not a \
+         program.\n{}",
+        p.line,
+        e.lines()
+          .map(|l| format!("        {l}"))
+          .collect::<Vec<_>>()
+          .join("\n")
+      )),
+    }
+  }
+  problems
 }
 
 #[cfg(test)]
 mod test {
   use super::*;
 
+  /// The single rendered block in `md`.
   fn one(md: &str) -> String {
-    let reps = replacements(md, 1).unwrap();
+    let (reps, _) = replacements(md, 1).unwrap();
     assert_eq!(reps.len(), 1, "{reps:?}");
     reps.into_iter().next().unwrap().1
+  }
+
+  /// The programs `md`'s blocks would be checked as.
+  fn programs(md: &str) -> Vec<Program> {
+    replacements(md, 1).unwrap().1
   }
 
   #[test]
@@ -726,7 +938,7 @@ mod test {
   #[test]
   fn replaces_only_the_fence_and_finds_every_block() {
     let md = "before\n\n```origins\nlet a = 1;\n```\n\nbetween\n\n```origins\nfn f<'?a>() {}\n```\n\nafter\n";
-    let reps = replacements(md, 1).unwrap();
+    let (reps, _) = replacements(md, 1).unwrap();
     assert_eq!(reps.len(), 2);
     assert_eq!(&md[reps[0].0.clone()], "```origins\nlet a = 1;\n```");
     assert_eq!(&md[reps[1].0.clone()], "```origins\nfn f<'?a>() {}\n```");
@@ -752,19 +964,142 @@ mod test {
     // A deck documenting the notation writes an ```origins block inside a
     // longer fence; only real blocks are rendered.
     let md = "````markdown\n```origins\nlet a = [[a:1:]];\n```\n````\n\n```origins\nlet b = 2;\n```\n";
-    let reps = replacements(md, 1).unwrap();
+    let (reps, _) = replacements(md, 1).unwrap();
     assert_eq!(reps.len(), 1, "{reps:?}");
     assert_eq!(&md[reps[0].0.clone()], "```origins\nlet b = 2;\n```");
+  }
+
+  #[test]
+  fn a_hidden_line_is_compiled_but_not_shown() {
+    let md = "```origins\n# fn main() {\nlet a = 1;\n# }\n```\n";
+    let html = one(md);
+    assert!(!html.contains("main"), "{html}");
+    assert!(
+      html.contains("<span class=\"hljs-number\">1</span>"),
+      "{html}"
+    );
+    assert_eq!(programs(md)[0].code, "fn main() {\nlet a = 1;\n}");
+  }
+
+  #[test]
+  fn a_doubled_hash_shows_one() {
+    let html = one("```origins\n## [derive(Debug)]\nstruct S;\n```\n");
+    // The highlighter has been over it, so look for the escaped `#` alone.
+    assert!(html.contains("># ["), "{html}");
+  }
+
+  #[test]
+  fn the_program_is_the_notation_translated_back_into_rust() {
+    // A concrete origin is the lifetime inference would pick, so it becomes
+    // `'_`; a generic one is a real parameter; a frame is annotation only.
+    let md = "```origins\nfn f<'?a>(v: &'?a Vec<i32>) -> &'?a i32 { &[[a:v:]][0] }\nlet r: &'!a i32 = f(&v);\n```\n";
+    assert_eq!(
+      programs(md)[0].code,
+      "fn f<'a>(v: &'a Vec<i32>) -> &'a i32 { &v[0] }\nlet r: &'_ i32 = f(&v);"
+    );
+  }
+
+  #[test]
+  fn run_carries_the_program_in_an_attribute() {
+    let html =
+      one("```origins,run\n# fn main() {\nlet r: &'!a i32 = &1;\n# }\n```\n");
+    // Newlines escaped too: an attribute spanning lines would put a blank
+    // line inside the raw-HTML block.
+    assert!(
+      html.contains(
+        r#"data-run-code="fn main() {&#10;let r: &amp;'_ i32 = &amp;1;&#10;}""#
+      ),
+      "{html}"
+    );
+    assert!(!html.contains('\n'), "{html:?}");
+  }
+
+  #[test]
+  fn should_fail_asks_for_the_crab_and_is_not_run() {
+    let html = one("```origins,shouldFail\nlet a: i32 = \"s\";\n```\n");
+    assert!(
+      html.contains(r#"class="code hljs does_not_compile""#),
+      "{html}"
+    );
+    assert!(!html.contains("data-run-code"), "{html}");
+    assert!(
+      programs("```origins,shouldFail\nlet a = 1;\n```\n")[0].should_fail
+    );
+  }
+
+  #[test]
+  fn notation_is_not_compiled_at_all() {
+    assert!(
+      programs("```origins,notation\nfn f() -> &'a str\n```\n").is_empty()
+    );
+    // Every other block is, without asking.
+    assert_eq!(programs("```origins\nfn main() {}\n```\n").len(), 1);
+  }
+
+  #[test]
+  fn notation_cannot_also_run_or_fail() {
+    for spec in ["notation,run", "notation,shouldFail"] {
+      let md = format!("```origins,{spec}\nfn f() {{}}\n```\n");
+      // `{:#}` for the whole chain: the outer layer is only the line number.
+      let err = format!("{:#}", replacements(&md, 1).unwrap_err());
+      assert!(err.contains("not a program"), "{spec}: {err}");
+    }
+  }
+
+  #[test]
+  fn check_reports_what_disagrees_with_the_fence() {
+    let good = Program {
+      line: 1,
+      code: "fn main() {}".into(),
+      should_fail: false,
+    };
+    let bad = Program {
+      line: 2,
+      code: "fn main() { let x: i32 = \"s\"; }".into(),
+      should_fail: false,
+    };
+    let expected = Program {
+      line: 3,
+      code: "fn main() { let x: i32 = \"s\"; }".into(),
+      should_fail: true,
+    };
+    let surprise = Program {
+      line: 4,
+      code: "fn main() {}".into(),
+      should_fail: true,
+    };
+
+    assert!(check(&[good, expected]).is_empty());
+    let problems = check(&[bad, surprise]);
+    assert_eq!(problems.len(), 2, "{problems:?}");
+    assert!(
+      problems[0].starts_with("2: ")
+        && problems[0].contains("does not compile")
+    );
+    assert!(problems[1].starts_with("4: ") && problems[1].contains("compiles"));
+  }
+
+  #[test]
+  fn an_unused_name_is_not_a_failure() {
+    // A slide shows what makes its point and nothing else.
+    let problems = check(&[Program {
+      line: 1,
+      code: "fn helper() {}\nfn main() { let x = 1; }".into(),
+      should_fail: false,
+    }]);
+    assert!(problems.is_empty(), "{problems:?}");
   }
 
   #[test]
   fn ignores_other_fences() {
     assert!(replacements("```rust\nlet a = 1;\n```\n", 1)
       .unwrap()
+      .0
       .is_empty());
     assert!(
       replacements("```aquascope,permissions\nfn main() {}\n```\n", 1)
         .unwrap()
+        .0
         .is_empty()
     );
   }
@@ -773,11 +1108,15 @@ mod test {
   fn rejects_a_bad_specifier_and_an_unclosed_marker() {
     assert!(replacements("```origins\nlet a = [[a:1;\n```\n", 1).is_err());
     assert!(replacements("```origins\nlet a = 1;\n", 1).is_err());
-    // The specifiers are gone; a block still carrying one says so.
-    let err = replacements("```origins,generic\nfn f() {}\n```\n", 1)
-      .unwrap_err()
-      .to_string();
-    assert!(err.contains("takes no specifiers"), "{err}");
-    assert!(err.contains("'?a"), "{err}");
+    // The notation modes are gone; only block metadata remains.
+    // `{:#}` for the whole chain: the outer layer is only the line number.
+    let err = format!(
+      "{:#}",
+      replacements("```origins,generic\nfn f() {}\n```\n", 1).unwrap_err()
+    );
+    assert!(
+      err.contains("unknown ```origins specifier `generic`"),
+      "{err}"
+    );
   }
 }

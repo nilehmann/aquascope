@@ -161,8 +161,22 @@ fn build(args: &Args, preprocessor: &mut AquascopePreprocessor) -> Result<()> {
     source[.. source.len() - body.len()].lines().count() + 1;
 
   let mut edits = preprocessor.replacements(body)?;
-  edits.extend(origins::replacements(body, first_body_line)?);
+  let (origin_edits, programs) = origins::replacements(body, first_body_line)?;
+  edits.extend(origin_edits);
   let content = apply(body, edits);
+
+  // Every ```origins block that claims to be code is compiled, so a typo on a
+  // slide is found here rather than in the lecture. A block whose failure is
+  // the point says `shouldFail`; one that is not a program says `notation`.
+  let problems = origins::check(&programs);
+  for problem in &problems {
+    eprintln!("error: {}:{problem}", args.input.display());
+  }
+  anyhow::ensure!(
+    problems.is_empty(),
+    "{} ```origins block(s) disagree with their fence",
+    problems.len()
+  );
   preprocessor.save_cache();
 
   let slides = deck::Deck::parse(&content).to_html();

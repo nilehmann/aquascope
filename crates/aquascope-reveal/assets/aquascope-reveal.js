@@ -135,6 +135,99 @@
     true
   );
 
+
+  // The Run button on an ```origins block.
+  //
+  // Those blocks are baked HTML rather than an editor, so nothing renders a
+  // Run button for them and there is no CodeMirror document to read. The
+  // program is on the element instead, in `data-run-code`: it is not what the
+  // slide shows, since hidden lines are missing from the slide and the origin
+  // markers are not Rust.
+  //
+  // Everything below builds the DOM the editor builds -- a `.result-container`
+  // holding `pre > code.result` -- so the expand-to-modal button above and
+  // every style for the result box apply here without knowing the difference.
+  var DEFAULT_RUN_URL = "https://play.rust-lang.org/evaluate.json";
+
+  function runOrigins(pre, result) {
+    result.innerHTML =
+      '<button type="button" class="cm-button result-close" title="Hide output">✕</button>' +
+      '<pre><code class="result hljs language-bash">Running...</code></pre>';
+    result.querySelector(".result-close").addEventListener("click", function () {
+      result.innerHTML = "";
+    });
+
+    var code = result.querySelector(".result");
+    fetch(window.AQUASCOPE_RUN_URL || DEFAULT_RUN_URL, {
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+      mode: "cors",
+      body: JSON.stringify({
+        version: "stable",
+        optimize: "0",
+        code: pre.getAttribute("data-run-code"),
+        edition: "2021"
+      })
+    })
+      .then(function (response) {
+        return response.json();
+      })
+      .then(function (response) {
+        if (response.result.trim() === "") {
+          code.innerText = "No output";
+          code.classList.add("result-no-output");
+        } else {
+          // The endpoint's contract: `result` is HTML, which is what carries
+          // rustc's colours. Same trust as the editor's own run.
+          code.innerHTML = response.result;
+          code.classList.remove("result-no-output");
+        }
+      })
+      .catch(function (error) {
+        code.innerText = "Playground Communication: " + error.message;
+      });
+  }
+
+  // Attached rather than rendered server-side: `.code-row > .snug` and the
+  // `.swap` grid both key off the `pre`'s parent, so wrapping it in a div
+  // would move slides around.
+  function addRunButtons(slide) {
+    var blocks = slide.querySelectorAll("pre[data-run-code]");
+    for (var i = 0; i < blocks.length; i++) {
+      var pre = blocks[i];
+      if (pre.dataset.runReady) {
+        continue;
+      }
+      pre.dataset.runReady = "1";
+
+      var result = document.createElement("div");
+      result.className = "result-container";
+      pre.parentNode.insertBefore(result, pre.nextSibling);
+
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "cm-button origins-run";
+      button.title = "Compile and run";
+      button.textContent = "▶";
+      button.addEventListener(
+        "click",
+        (function (pre, result) {
+          return function () {
+            runOrigins(pre, result);
+          };
+        })(pre, result)
+      );
+
+      // Inside the `pre`, not beside it: see the CSS note. The glyph joins
+      // the block's text content, which costs a stray character if the code
+      // is selected and copied.
+      var controls = document.createElement("div");
+      controls.className = "top-right";
+      controls.appendChild(button);
+      pre.appendChild(controls);
+    }
+  }
+
   function decorate(container) {
     if (container.querySelector(".result-expand")) {
       return;
@@ -243,10 +336,12 @@
       plugins: [RevealHighlight, RevealNotes]
     })).then(function () {
       hydrate(Reveal.getCurrentSlide());
+      addRunButtons(Reveal.getCurrentSlide());
     });
 
     Reveal.on("slidechanged", function (event) {
       hydrate(event.currentSlide);
+      addRunButtons(event.currentSlide);
     });
   });
 })();

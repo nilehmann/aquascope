@@ -233,6 +233,69 @@
   min-width: var(--aq-button-min-width);
 }
 
+/* A runnable ```origins block. Those are baked `pre`s rather than editors, so
+ * none of Aquascope's `.aquascope`-scoped chrome reaches them: the Run button,
+ * its hover reveal and the result box's controls are all restated here, with
+ * the same variables so the two kinds of block look identical.
+ *
+ * The controls sit *inside* the `pre` -- which is what `position: relative`
+ * here is for -- because `.code-row > .snug` and the `.swap` grid both key off
+ * the `pre`'s parent, and a wrapper would move slides around. */
+.reveal pre[data-run-code] {
+  position: relative;
+}
+
+.reveal pre[data-run-code] .top-right {
+  z-index: 10;
+  position: absolute;
+  top: 8px;
+  right: 2px;
+}
+
+.reveal pre[data-run-code] .cm-button,
+.reveal .result-container .cm-button {
+  background-color: var(--aq-button-background);
+  color: var(--aq-button-text);
+  border: 1px solid var(--aq-button-border);
+  border-radius: 4px;
+  margin: 0 5px;
+  cursor: pointer;
+  font-size: var(--aq-button-font-size);
+  padding: var(--aq-button-padding);
+  min-width: var(--aq-button-min-width);
+  opacity: 0;
+  transition: 100ms;
+  transition-property: color, border-color, background-color, opacity;
+}
+
+/* Hidden until the block is hovered, the way the editor's controls are. The
+ * result box counts as part of the block it belongs to, so hovering either
+ * shows both. */
+.reveal pre[data-run-code]:hover .cm-button,
+.reveal .result-container:hover .cm-button {
+  opacity: 1;
+}
+
+/* The result box of an origins block, matching the editor's own: a panel
+ * under the code with its controls inset rather than hard against a corner. */
+.reveal .result-container {
+  position: relative;
+}
+
+.reveal .result-container .top-right {
+  position: absolute;
+  z-index: 100;
+  top: 1rem;
+  right: 1rem;
+}
+
+.reveal .result-container .result-close,
+.reveal .result-container .result-expand {
+  position: static;
+  padding: var(--aq-button-padding);
+  line-height: normal;
+}
+
 /* The modal is appended to <body>, outside `.reveal`, so none of reveal's
  * typography applies to it and none of the rules above reach it. */
 .aq-output-modal {
