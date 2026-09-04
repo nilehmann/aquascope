@@ -1,0 +1,2341 @@
+---
+source: crates/aquascope/tests/interpreter.rs
+description: fieldref.test
+---
+steps:
+  - stack:
+      frames:
+        - name: main
+          body_span:
+            start:
+              line: 14
+              column: 0
+            end:
+              line: 28
+              column: 1
+            filename:
+              private_use_as_methods_instead: 0
+          location:
+            start:
+              line: 15
+              column: 2
+            end:
+              line: 15
+              column: 83
+            filename:
+              private_use_as_methods_instead: 0
+          locals:
+            - name: u
+              value:
+                type: Adt
+                value:
+                  name: User
+                  variant: ~
+                  fields:
+                    - - name
+                      - type: Adt
+                        value:
+                          name: String
+                          variant: ~
+                          fields:
+                            - - vec
+                              - type: Adt
+                                value:
+                                  name: Vec
+                                  variant: ~
+                                  fields:
+                                    - - buf
+                                      - type: Adt
+                                        value:
+                                          name: RawVec
+                                          variant: ~
+                                          fields:
+                                            - - inner
+                                              - type: Adt
+                                                value:
+                                                  name: RawVecInner
+                                                  variant: ~
+                                                  fields:
+                                                    - - ptr
+                                                      - type: Adt
+                                                        value:
+                                                          name: Unique
+                                                          variant: ~
+                                                          fields:
+                                                            - - pointer
+                                                              - type: Adt
+                                                                value:
+                                                                  name: NonNull
+                                                                  variant: ~
+                                                                  fields:
+                                                                    - - pointer
+                                                                      - type: Pointer
+                                                                        value:
+                                                                          path:
+                                                                            segment:
+                                                                              type: Heap
+                                                                              value:
+                                                                                index: 0
+                                                                            parts:
+                                                                              - type: Index
+                                                                                value: 0
+                                                                          range: ~
+                                                                  alloc_kind: ~
+                                                          alloc_kind: ~
+                                                    - - cap
+                                                      - type: Adt
+                                                        value:
+                                                          name: UsizeNoHighBit
+                                                          variant: ~
+                                                          fields:
+                                                            - - "0"
+                                                              - type: Uint
+                                                                value: 13
+                                                          alloc_kind: ~
+                                                  alloc_kind: ~
+                                          alloc_kind: ~
+                                    - - len
+                                      - type: Uint
+                                        value: 13
+                                  alloc_kind: ~
+                          alloc_kind:
+                            type: String
+                            value:
+                              len: 13
+                    - - age
+                      - type: Uint
+                        value: 23
+                    - - active
+                      - type: Bool
+                        value: false
+                  alloc_kind: ~
+              moved_paths: []
+    heap:
+      locations:
+        - type: Array
+          value:
+            type: Only
+            value:
+              - - type: Char
+                  value: 85
+                - type: Char
+                  value: 114
+                - type: Char
+                  value: 115
+                - type: Char
+                  value: 117
+                - type: Char
+                  value: 108
+                - type: Char
+                  value: 97
+                - type: Char
+                  value: 32
+                - type: Char
+                  value: 83
+                - type: Char
+                  value: 117
+                - type: Char
+                  value: 97
+                - type: Char
+                  value: 114
+              - type: Char
+                value: 111
+  - stack:
+      frames:
+        - name: main
+          body_span:
+            start:
+              line: 14
+              column: 0
+            end:
+              line: 28
+              column: 1
+            filename:
+              private_use_as_methods_instead: 0
+          location:
+            start:
+              line: 16
+              column: 2
+            end:
+              line: 16
+              column: 25
+            filename:
+              private_use_as_methods_instead: 0
+          locals:
+            - name: u
+              value:
+                type: Adt
+                value:
+                  name: User
+                  variant: ~
+                  fields:
+                    - - name
+                      - type: Adt
+                        value:
+                          name: String
+                          variant: ~
+                          fields:
+                            - - vec
+                              - type: Adt
+                                value:
+                                  name: Vec
+                                  variant: ~
+                                  fields:
+                                    - - buf
+                                      - type: Adt
+                                        value:
+                                          name: RawVec
+                                          variant: ~
+                                          fields:
+                                            - - inner
+                                              - type: Adt
+                                                value:
+                                                  name: RawVecInner
+                                                  variant: ~
+                                                  fields:
+                                                    - - ptr
+                                                      - type: Adt
+                                                        value:
+                                                          name: Unique
+                                                          variant: ~
+                                                          fields:
+                                                            - - pointer
+                                                              - type: Adt
+                                                                value:
+                                                                  name: NonNull
+                                                                  variant: ~
+                                                                  fields:
+                                                                    - - pointer
+                                                                      - type: Pointer
+                                                                        value:
+                                                                          path:
+                                                                            segment:
+                                                                              type: Heap
+                                                                              value:
+                                                                                index: 0
+                                                                            parts:
+                                                                              - type: Index
+                                                                                value: 0
+                                                                          range: ~
+                                                                  alloc_kind: ~
+                                                          alloc_kind: ~
+                                                    - - cap
+                                                      - type: Adt
+                                                        value:
+                                                          name: UsizeNoHighBit
+                                                          variant: ~
+                                                          fields:
+                                                            - - "0"
+                                                              - type: Uint
+                                                                value: 13
+                                                          alloc_kind: ~
+                                                  alloc_kind: ~
+                                          alloc_kind: ~
+                                    - - len
+                                      - type: Uint
+                                        value: 13
+                                  alloc_kind: ~
+                          alloc_kind:
+                            type: String
+                            value:
+                              len: 13
+                    - - age
+                      - type: Uint
+                        value: 23
+                    - - active
+                      - type: Bool
+                        value: false
+                  alloc_kind: ~
+              moved_paths: []
+            - name: name
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: u
+                    parts:
+                      - type: Field
+                        value: 0
+                  range: ~
+              moved_paths: []
+    heap:
+      locations:
+        - type: Array
+          value:
+            type: Only
+            value:
+              - - type: Char
+                  value: 85
+                - type: Char
+                  value: 114
+                - type: Char
+                  value: 115
+                - type: Char
+                  value: 117
+                - type: Char
+                  value: 108
+                - type: Char
+                  value: 97
+                - type: Char
+                  value: 32
+                - type: Char
+                  value: 83
+                - type: Char
+                  value: 117
+                - type: Char
+                  value: 97
+                - type: Char
+                  value: 114
+              - type: Char
+                value: 111
+  - stack:
+      frames:
+        - name: main
+          body_span:
+            start:
+              line: 14
+              column: 0
+            end:
+              line: 28
+              column: 1
+            filename:
+              private_use_as_methods_instead: 0
+          location:
+            start:
+              line: 17
+              column: 2
+            end:
+              line: 17
+              column: 23
+            filename:
+              private_use_as_methods_instead: 0
+          locals:
+            - name: u
+              value:
+                type: Adt
+                value:
+                  name: User
+                  variant: ~
+                  fields:
+                    - - name
+                      - type: Adt
+                        value:
+                          name: String
+                          variant: ~
+                          fields:
+                            - - vec
+                              - type: Adt
+                                value:
+                                  name: Vec
+                                  variant: ~
+                                  fields:
+                                    - - buf
+                                      - type: Adt
+                                        value:
+                                          name: RawVec
+                                          variant: ~
+                                          fields:
+                                            - - inner
+                                              - type: Adt
+                                                value:
+                                                  name: RawVecInner
+                                                  variant: ~
+                                                  fields:
+                                                    - - ptr
+                                                      - type: Adt
+                                                        value:
+                                                          name: Unique
+                                                          variant: ~
+                                                          fields:
+                                                            - - pointer
+                                                              - type: Adt
+                                                                value:
+                                                                  name: NonNull
+                                                                  variant: ~
+                                                                  fields:
+                                                                    - - pointer
+                                                                      - type: Pointer
+                                                                        value:
+                                                                          path:
+                                                                            segment:
+                                                                              type: Heap
+                                                                              value:
+                                                                                index: 0
+                                                                            parts:
+                                                                              - type: Index
+                                                                                value: 0
+                                                                          range: ~
+                                                                  alloc_kind: ~
+                                                          alloc_kind: ~
+                                                    - - cap
+                                                      - type: Adt
+                                                        value:
+                                                          name: UsizeNoHighBit
+                                                          variant: ~
+                                                          fields:
+                                                            - - "0"
+                                                              - type: Uint
+                                                                value: 13
+                                                          alloc_kind: ~
+                                                  alloc_kind: ~
+                                          alloc_kind: ~
+                                    - - len
+                                      - type: Uint
+                                        value: 13
+                                  alloc_kind: ~
+                          alloc_kind:
+                            type: String
+                            value:
+                              len: 13
+                    - - age
+                      - type: Uint
+                        value: 23
+                    - - active
+                      - type: Bool
+                        value: false
+                  alloc_kind: ~
+              moved_paths: []
+            - name: name
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: u
+                    parts:
+                      - type: Field
+                        value: 0
+                  range: ~
+              moved_paths: []
+            - name: age
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: u
+                    parts:
+                      - type: Field
+                        value: 1
+                  range: ~
+              moved_paths: []
+    heap:
+      locations:
+        - type: Array
+          value:
+            type: Only
+            value:
+              - - type: Char
+                  value: 85
+                - type: Char
+                  value: 114
+                - type: Char
+                  value: 115
+                - type: Char
+                  value: 117
+                - type: Char
+                  value: 108
+                - type: Char
+                  value: 97
+                - type: Char
+                  value: 32
+                - type: Char
+                  value: 83
+                - type: Char
+                  value: 117
+                - type: Char
+                  value: 97
+                - type: Char
+                  value: 114
+              - type: Char
+                value: 111
+  - stack:
+      frames:
+        - name: main
+          body_span:
+            start:
+              line: 14
+              column: 0
+            end:
+              line: 28
+              column: 1
+            filename:
+              private_use_as_methods_instead: 0
+          location:
+            start:
+              line: 18
+              column: 2
+            end:
+              line: 18
+              column: 12
+            filename:
+              private_use_as_methods_instead: 0
+          locals:
+            - name: u
+              value:
+                type: Adt
+                value:
+                  name: User
+                  variant: ~
+                  fields:
+                    - - name
+                      - type: Adt
+                        value:
+                          name: String
+                          variant: ~
+                          fields:
+                            - - vec
+                              - type: Adt
+                                value:
+                                  name: Vec
+                                  variant: ~
+                                  fields:
+                                    - - buf
+                                      - type: Adt
+                                        value:
+                                          name: RawVec
+                                          variant: ~
+                                          fields:
+                                            - - inner
+                                              - type: Adt
+                                                value:
+                                                  name: RawVecInner
+                                                  variant: ~
+                                                  fields:
+                                                    - - ptr
+                                                      - type: Adt
+                                                        value:
+                                                          name: Unique
+                                                          variant: ~
+                                                          fields:
+                                                            - - pointer
+                                                              - type: Adt
+                                                                value:
+                                                                  name: NonNull
+                                                                  variant: ~
+                                                                  fields:
+                                                                    - - pointer
+                                                                      - type: Pointer
+                                                                        value:
+                                                                          path:
+                                                                            segment:
+                                                                              type: Heap
+                                                                              value:
+                                                                                index: 0
+                                                                            parts:
+                                                                              - type: Index
+                                                                                value: 0
+                                                                          range: ~
+                                                                  alloc_kind: ~
+                                                          alloc_kind: ~
+                                                    - - cap
+                                                      - type: Adt
+                                                        value:
+                                                          name: UsizeNoHighBit
+                                                          variant: ~
+                                                          fields:
+                                                            - - "0"
+                                                              - type: Uint
+                                                                value: 13
+                                                          alloc_kind: ~
+                                                  alloc_kind: ~
+                                          alloc_kind: ~
+                                    - - len
+                                      - type: Uint
+                                        value: 13
+                                  alloc_kind: ~
+                          alloc_kind:
+                            type: String
+                            value:
+                              len: 13
+                    - - age
+                      - type: Uint
+                        value: 24
+                    - - active
+                      - type: Bool
+                        value: false
+                  alloc_kind: ~
+              moved_paths: []
+            - name: name
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: u
+                    parts:
+                      - type: Field
+                        value: 0
+                  range: ~
+              moved_paths: []
+            - name: age
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: u
+                    parts:
+                      - type: Field
+                        value: 1
+                  range: ~
+              moved_paths: []
+    heap:
+      locations:
+        - type: Array
+          value:
+            type: Only
+            value:
+              - - type: Char
+                  value: 85
+                - type: Char
+                  value: 114
+                - type: Char
+                  value: 115
+                - type: Char
+                  value: 117
+                - type: Char
+                  value: 108
+                - type: Char
+                  value: 97
+                - type: Char
+                  value: 32
+                - type: Char
+                  value: 83
+                - type: Char
+                  value: 117
+                - type: Char
+                  value: 97
+                - type: Char
+                  value: 114
+              - type: Char
+                value: 111
+  - stack:
+      frames:
+        - name: main
+          body_span:
+            start:
+              line: 14
+              column: 0
+            end:
+              line: 28
+              column: 1
+            filename:
+              private_use_as_methods_instead: 0
+          location:
+            start:
+              line: 19
+              column: 2
+            end:
+              line: 19
+              column: 30
+            filename:
+              private_use_as_methods_instead: 0
+          locals:
+            - name: u
+              value:
+                type: Adt
+                value:
+                  name: User
+                  variant: ~
+                  fields:
+                    - - name
+                      - type: Adt
+                        value:
+                          name: String
+                          variant: ~
+                          fields:
+                            - - vec
+                              - type: Adt
+                                value:
+                                  name: Vec
+                                  variant: ~
+                                  fields:
+                                    - - buf
+                                      - type: Adt
+                                        value:
+                                          name: RawVec
+                                          variant: ~
+                                          fields:
+                                            - - inner
+                                              - type: Adt
+                                                value:
+                                                  name: RawVecInner
+                                                  variant: ~
+                                                  fields:
+                                                    - - ptr
+                                                      - type: Adt
+                                                        value:
+                                                          name: Unique
+                                                          variant: ~
+                                                          fields:
+                                                            - - pointer
+                                                              - type: Adt
+                                                                value:
+                                                                  name: NonNull
+                                                                  variant: ~
+                                                                  fields:
+                                                                    - - pointer
+                                                                      - type: Pointer
+                                                                        value:
+                                                                          path:
+                                                                            segment:
+                                                                              type: Heap
+                                                                              value:
+                                                                                index: 0
+                                                                            parts:
+                                                                              - type: Index
+                                                                                value: 0
+                                                                          range: ~
+                                                                  alloc_kind: ~
+                                                          alloc_kind: ~
+                                                    - - cap
+                                                      - type: Adt
+                                                        value:
+                                                          name: UsizeNoHighBit
+                                                          variant: ~
+                                                          fields:
+                                                            - - "0"
+                                                              - type: Uint
+                                                                value: 13
+                                                          alloc_kind: ~
+                                                  alloc_kind: ~
+                                          alloc_kind: ~
+                                    - - len
+                                      - type: Uint
+                                        value: 13
+                                  alloc_kind: ~
+                          alloc_kind:
+                            type: String
+                            value:
+                              len: 13
+                    - - age
+                      - type: Uint
+                        value: 24
+                    - - active
+                      - type: Bool
+                        value: false
+                  alloc_kind: ~
+              moved_paths: []
+            - name: name
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: u
+                    parts:
+                      - type: Field
+                        value: 0
+                  range: ~
+              moved_paths: []
+            - name: age
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: u
+                    parts:
+                      - type: Field
+                        value: 1
+                  range: ~
+              moved_paths: []
+    heap:
+      locations:
+        - type: Array
+          value:
+            type: Only
+            value:
+              - - type: Char
+                  value: 85
+                - type: Char
+                  value: 82
+                - type: Char
+                  value: 83
+                - type: Char
+                  value: 85
+                - type: Char
+                  value: 76
+                - type: Char
+                  value: 65
+                - type: Char
+                  value: 32
+                - type: Char
+                  value: 83
+                - type: Char
+                  value: 85
+                - type: Char
+                  value: 65
+                - type: Char
+                  value: 82
+              - type: Char
+                value: 79
+  - stack:
+      frames:
+        - name: main
+          body_span:
+            start:
+              line: 14
+              column: 0
+            end:
+              line: 28
+              column: 1
+            filename:
+              private_use_as_methods_instead: 0
+          location:
+            start:
+              line: 21
+              column: 2
+            end:
+              line: 21
+              column: 57
+            filename:
+              private_use_as_methods_instead: 0
+          locals:
+            - name: u
+              value:
+                type: Adt
+                value:
+                  name: User
+                  variant: ~
+                  fields:
+                    - - name
+                      - type: Adt
+                        value:
+                          name: String
+                          variant: ~
+                          fields:
+                            - - vec
+                              - type: Adt
+                                value:
+                                  name: Vec
+                                  variant: ~
+                                  fields:
+                                    - - buf
+                                      - type: Adt
+                                        value:
+                                          name: RawVec
+                                          variant: ~
+                                          fields:
+                                            - - inner
+                                              - type: Adt
+                                                value:
+                                                  name: RawVecInner
+                                                  variant: ~
+                                                  fields:
+                                                    - - ptr
+                                                      - type: Adt
+                                                        value:
+                                                          name: Unique
+                                                          variant: ~
+                                                          fields:
+                                                            - - pointer
+                                                              - type: Adt
+                                                                value:
+                                                                  name: NonNull
+                                                                  variant: ~
+                                                                  fields:
+                                                                    - - pointer
+                                                                      - type: Pointer
+                                                                        value:
+                                                                          path:
+                                                                            segment:
+                                                                              type: Heap
+                                                                              value:
+                                                                                index: 0
+                                                                            parts:
+                                                                              - type: Index
+                                                                                value: 0
+                                                                          range: ~
+                                                                  alloc_kind: ~
+                                                          alloc_kind: ~
+                                                    - - cap
+                                                      - type: Adt
+                                                        value:
+                                                          name: UsizeNoHighBit
+                                                          variant: ~
+                                                          fields:
+                                                            - - "0"
+                                                              - type: Uint
+                                                                value: 13
+                                                          alloc_kind: ~
+                                                  alloc_kind: ~
+                                          alloc_kind: ~
+                                    - - len
+                                      - type: Uint
+                                        value: 13
+                                  alloc_kind: ~
+                          alloc_kind:
+                            type: String
+                            value:
+                              len: 13
+                    - - age
+                      - type: Uint
+                        value: 24
+                    - - active
+                      - type: Bool
+                        value: false
+                  alloc_kind: ~
+              moved_paths: []
+            - name: name
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: u
+                    parts:
+                      - type: Field
+                        value: 0
+                  range: ~
+              moved_paths: []
+            - name: age
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: u
+                    parts:
+                      - type: Field
+                        value: 1
+                  range: ~
+              moved_paths: []
+            - name: r
+              value:
+                type: Adt
+                value:
+                  name: Reordered
+                  variant: ~
+                  fields:
+                    - - flag
+                      - type: Bool
+                        value: true
+                    - - count
+                      - type: Uint
+                        value: 1
+                    - - tag
+                      - type: Uint
+                        value: 2
+                  alloc_kind: ~
+              moved_paths: []
+    heap:
+      locations:
+        - type: Array
+          value:
+            type: Only
+            value:
+              - - type: Char
+                  value: 85
+                - type: Char
+                  value: 82
+                - type: Char
+                  value: 83
+                - type: Char
+                  value: 85
+                - type: Char
+                  value: 76
+                - type: Char
+                  value: 65
+                - type: Char
+                  value: 32
+                - type: Char
+                  value: 83
+                - type: Char
+                  value: 85
+                - type: Char
+                  value: 65
+                - type: Char
+                  value: 82
+              - type: Char
+                value: 79
+  - stack:
+      frames:
+        - name: main
+          body_span:
+            start:
+              line: 14
+              column: 0
+            end:
+              line: 28
+              column: 1
+            filename:
+              private_use_as_methods_instead: 0
+          location:
+            start:
+              line: 22
+              column: 2
+            end:
+              line: 22
+              column: 25
+            filename:
+              private_use_as_methods_instead: 0
+          locals:
+            - name: u
+              value:
+                type: Adt
+                value:
+                  name: User
+                  variant: ~
+                  fields:
+                    - - name
+                      - type: Adt
+                        value:
+                          name: String
+                          variant: ~
+                          fields:
+                            - - vec
+                              - type: Adt
+                                value:
+                                  name: Vec
+                                  variant: ~
+                                  fields:
+                                    - - buf
+                                      - type: Adt
+                                        value:
+                                          name: RawVec
+                                          variant: ~
+                                          fields:
+                                            - - inner
+                                              - type: Adt
+                                                value:
+                                                  name: RawVecInner
+                                                  variant: ~
+                                                  fields:
+                                                    - - ptr
+                                                      - type: Adt
+                                                        value:
+                                                          name: Unique
+                                                          variant: ~
+                                                          fields:
+                                                            - - pointer
+                                                              - type: Adt
+                                                                value:
+                                                                  name: NonNull
+                                                                  variant: ~
+                                                                  fields:
+                                                                    - - pointer
+                                                                      - type: Pointer
+                                                                        value:
+                                                                          path:
+                                                                            segment:
+                                                                              type: Heap
+                                                                              value:
+                                                                                index: 0
+                                                                            parts:
+                                                                              - type: Index
+                                                                                value: 0
+                                                                          range: ~
+                                                                  alloc_kind: ~
+                                                          alloc_kind: ~
+                                                    - - cap
+                                                      - type: Adt
+                                                        value:
+                                                          name: UsizeNoHighBit
+                                                          variant: ~
+                                                          fields:
+                                                            - - "0"
+                                                              - type: Uint
+                                                                value: 13
+                                                          alloc_kind: ~
+                                                  alloc_kind: ~
+                                          alloc_kind: ~
+                                    - - len
+                                      - type: Uint
+                                        value: 13
+                                  alloc_kind: ~
+                          alloc_kind:
+                            type: String
+                            value:
+                              len: 13
+                    - - age
+                      - type: Uint
+                        value: 24
+                    - - active
+                      - type: Bool
+                        value: false
+                  alloc_kind: ~
+              moved_paths: []
+            - name: name
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: u
+                    parts:
+                      - type: Field
+                        value: 0
+                  range: ~
+              moved_paths: []
+            - name: age
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: u
+                    parts:
+                      - type: Field
+                        value: 1
+                  range: ~
+              moved_paths: []
+            - name: r
+              value:
+                type: Adt
+                value:
+                  name: Reordered
+                  variant: ~
+                  fields:
+                    - - flag
+                      - type: Bool
+                        value: true
+                    - - count
+                      - type: Uint
+                        value: 1
+                    - - tag
+                      - type: Uint
+                        value: 2
+                  alloc_kind: ~
+              moved_paths: []
+            - name: flag
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: r
+                    parts:
+                      - type: Field
+                        value: 0
+                  range: ~
+              moved_paths: []
+    heap:
+      locations:
+        - type: Array
+          value:
+            type: Only
+            value:
+              - - type: Char
+                  value: 85
+                - type: Char
+                  value: 82
+                - type: Char
+                  value: 83
+                - type: Char
+                  value: 85
+                - type: Char
+                  value: 76
+                - type: Char
+                  value: 65
+                - type: Char
+                  value: 32
+                - type: Char
+                  value: 83
+                - type: Char
+                  value: 85
+                - type: Char
+                  value: 65
+                - type: Char
+                  value: 82
+              - type: Char
+                value: 79
+  - stack:
+      frames:
+        - name: main
+          body_span:
+            start:
+              line: 14
+              column: 0
+            end:
+              line: 28
+              column: 1
+            filename:
+              private_use_as_methods_instead: 0
+          location:
+            start:
+              line: 23
+              column: 2
+            end:
+              line: 23
+              column: 27
+            filename:
+              private_use_as_methods_instead: 0
+          locals:
+            - name: u
+              value:
+                type: Adt
+                value:
+                  name: User
+                  variant: ~
+                  fields:
+                    - - name
+                      - type: Adt
+                        value:
+                          name: String
+                          variant: ~
+                          fields:
+                            - - vec
+                              - type: Adt
+                                value:
+                                  name: Vec
+                                  variant: ~
+                                  fields:
+                                    - - buf
+                                      - type: Adt
+                                        value:
+                                          name: RawVec
+                                          variant: ~
+                                          fields:
+                                            - - inner
+                                              - type: Adt
+                                                value:
+                                                  name: RawVecInner
+                                                  variant: ~
+                                                  fields:
+                                                    - - ptr
+                                                      - type: Adt
+                                                        value:
+                                                          name: Unique
+                                                          variant: ~
+                                                          fields:
+                                                            - - pointer
+                                                              - type: Adt
+                                                                value:
+                                                                  name: NonNull
+                                                                  variant: ~
+                                                                  fields:
+                                                                    - - pointer
+                                                                      - type: Pointer
+                                                                        value:
+                                                                          path:
+                                                                            segment:
+                                                                              type: Heap
+                                                                              value:
+                                                                                index: 0
+                                                                            parts:
+                                                                              - type: Index
+                                                                                value: 0
+                                                                          range: ~
+                                                                  alloc_kind: ~
+                                                          alloc_kind: ~
+                                                    - - cap
+                                                      - type: Adt
+                                                        value:
+                                                          name: UsizeNoHighBit
+                                                          variant: ~
+                                                          fields:
+                                                            - - "0"
+                                                              - type: Uint
+                                                                value: 13
+                                                          alloc_kind: ~
+                                                  alloc_kind: ~
+                                          alloc_kind: ~
+                                    - - len
+                                      - type: Uint
+                                        value: 13
+                                  alloc_kind: ~
+                          alloc_kind:
+                            type: String
+                            value:
+                              len: 13
+                    - - age
+                      - type: Uint
+                        value: 24
+                    - - active
+                      - type: Bool
+                        value: false
+                  alloc_kind: ~
+              moved_paths: []
+            - name: name
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: u
+                    parts:
+                      - type: Field
+                        value: 0
+                  range: ~
+              moved_paths: []
+            - name: age
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: u
+                    parts:
+                      - type: Field
+                        value: 1
+                  range: ~
+              moved_paths: []
+            - name: r
+              value:
+                type: Adt
+                value:
+                  name: Reordered
+                  variant: ~
+                  fields:
+                    - - flag
+                      - type: Bool
+                        value: true
+                    - - count
+                      - type: Uint
+                        value: 1
+                    - - tag
+                      - type: Uint
+                        value: 2
+                  alloc_kind: ~
+              moved_paths: []
+            - name: flag
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: r
+                    parts:
+                      - type: Field
+                        value: 0
+                  range: ~
+              moved_paths: []
+            - name: count
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: r
+                    parts:
+                      - type: Field
+                        value: 1
+                  range: ~
+              moved_paths: []
+    heap:
+      locations:
+        - type: Array
+          value:
+            type: Only
+            value:
+              - - type: Char
+                  value: 85
+                - type: Char
+                  value: 82
+                - type: Char
+                  value: 83
+                - type: Char
+                  value: 85
+                - type: Char
+                  value: 76
+                - type: Char
+                  value: 65
+                - type: Char
+                  value: 32
+                - type: Char
+                  value: 83
+                - type: Char
+                  value: 85
+                - type: Char
+                  value: 65
+                - type: Char
+                  value: 82
+              - type: Char
+                value: 79
+  - stack:
+      frames:
+        - name: main
+          body_span:
+            start:
+              line: 14
+              column: 0
+            end:
+              line: 28
+              column: 1
+            filename:
+              private_use_as_methods_instead: 0
+          location:
+            start:
+              line: 24
+              column: 2
+            end:
+              line: 24
+              column: 23
+            filename:
+              private_use_as_methods_instead: 0
+          locals:
+            - name: u
+              value:
+                type: Adt
+                value:
+                  name: User
+                  variant: ~
+                  fields:
+                    - - name
+                      - type: Adt
+                        value:
+                          name: String
+                          variant: ~
+                          fields:
+                            - - vec
+                              - type: Adt
+                                value:
+                                  name: Vec
+                                  variant: ~
+                                  fields:
+                                    - - buf
+                                      - type: Adt
+                                        value:
+                                          name: RawVec
+                                          variant: ~
+                                          fields:
+                                            - - inner
+                                              - type: Adt
+                                                value:
+                                                  name: RawVecInner
+                                                  variant: ~
+                                                  fields:
+                                                    - - ptr
+                                                      - type: Adt
+                                                        value:
+                                                          name: Unique
+                                                          variant: ~
+                                                          fields:
+                                                            - - pointer
+                                                              - type: Adt
+                                                                value:
+                                                                  name: NonNull
+                                                                  variant: ~
+                                                                  fields:
+                                                                    - - pointer
+                                                                      - type: Pointer
+                                                                        value:
+                                                                          path:
+                                                                            segment:
+                                                                              type: Heap
+                                                                              value:
+                                                                                index: 0
+                                                                            parts:
+                                                                              - type: Index
+                                                                                value: 0
+                                                                          range: ~
+                                                                  alloc_kind: ~
+                                                          alloc_kind: ~
+                                                    - - cap
+                                                      - type: Adt
+                                                        value:
+                                                          name: UsizeNoHighBit
+                                                          variant: ~
+                                                          fields:
+                                                            - - "0"
+                                                              - type: Uint
+                                                                value: 13
+                                                          alloc_kind: ~
+                                                  alloc_kind: ~
+                                          alloc_kind: ~
+                                    - - len
+                                      - type: Uint
+                                        value: 13
+                                  alloc_kind: ~
+                          alloc_kind:
+                            type: String
+                            value:
+                              len: 13
+                    - - age
+                      - type: Uint
+                        value: 24
+                    - - active
+                      - type: Bool
+                        value: false
+                  alloc_kind: ~
+              moved_paths: []
+            - name: name
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: u
+                    parts:
+                      - type: Field
+                        value: 0
+                  range: ~
+              moved_paths: []
+            - name: age
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: u
+                    parts:
+                      - type: Field
+                        value: 1
+                  range: ~
+              moved_paths: []
+            - name: r
+              value:
+                type: Adt
+                value:
+                  name: Reordered
+                  variant: ~
+                  fields:
+                    - - flag
+                      - type: Bool
+                        value: true
+                    - - count
+                      - type: Uint
+                        value: 1
+                    - - tag
+                      - type: Uint
+                        value: 2
+                  alloc_kind: ~
+              moved_paths: []
+            - name: flag
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: r
+                    parts:
+                      - type: Field
+                        value: 0
+                  range: ~
+              moved_paths: []
+            - name: count
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: r
+                    parts:
+                      - type: Field
+                        value: 1
+                  range: ~
+              moved_paths: []
+            - name: tag
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: r
+                    parts:
+                      - type: Field
+                        value: 2
+                  range: ~
+              moved_paths: []
+    heap:
+      locations:
+        - type: Array
+          value:
+            type: Only
+            value:
+              - - type: Char
+                  value: 85
+                - type: Char
+                  value: 82
+                - type: Char
+                  value: 83
+                - type: Char
+                  value: 85
+                - type: Char
+                  value: 76
+                - type: Char
+                  value: 65
+                - type: Char
+                  value: 32
+                - type: Char
+                  value: 83
+                - type: Char
+                  value: 85
+                - type: Char
+                  value: 65
+                - type: Char
+                  value: 82
+              - type: Char
+                value: 79
+  - stack:
+      frames:
+        - name: main
+          body_span:
+            start:
+              line: 14
+              column: 0
+            end:
+              line: 28
+              column: 1
+            filename:
+              private_use_as_methods_instead: 0
+          location:
+            start:
+              line: 25
+              column: 2
+            end:
+              line: 25
+              column: 14
+            filename:
+              private_use_as_methods_instead: 0
+          locals:
+            - name: u
+              value:
+                type: Adt
+                value:
+                  name: User
+                  variant: ~
+                  fields:
+                    - - name
+                      - type: Adt
+                        value:
+                          name: String
+                          variant: ~
+                          fields:
+                            - - vec
+                              - type: Adt
+                                value:
+                                  name: Vec
+                                  variant: ~
+                                  fields:
+                                    - - buf
+                                      - type: Adt
+                                        value:
+                                          name: RawVec
+                                          variant: ~
+                                          fields:
+                                            - - inner
+                                              - type: Adt
+                                                value:
+                                                  name: RawVecInner
+                                                  variant: ~
+                                                  fields:
+                                                    - - ptr
+                                                      - type: Adt
+                                                        value:
+                                                          name: Unique
+                                                          variant: ~
+                                                          fields:
+                                                            - - pointer
+                                                              - type: Adt
+                                                                value:
+                                                                  name: NonNull
+                                                                  variant: ~
+                                                                  fields:
+                                                                    - - pointer
+                                                                      - type: Pointer
+                                                                        value:
+                                                                          path:
+                                                                            segment:
+                                                                              type: Heap
+                                                                              value:
+                                                                                index: 0
+                                                                            parts:
+                                                                              - type: Index
+                                                                                value: 0
+                                                                          range: ~
+                                                                  alloc_kind: ~
+                                                          alloc_kind: ~
+                                                    - - cap
+                                                      - type: Adt
+                                                        value:
+                                                          name: UsizeNoHighBit
+                                                          variant: ~
+                                                          fields:
+                                                            - - "0"
+                                                              - type: Uint
+                                                                value: 13
+                                                          alloc_kind: ~
+                                                  alloc_kind: ~
+                                          alloc_kind: ~
+                                    - - len
+                                      - type: Uint
+                                        value: 13
+                                  alloc_kind: ~
+                          alloc_kind:
+                            type: String
+                            value:
+                              len: 13
+                    - - age
+                      - type: Uint
+                        value: 24
+                    - - active
+                      - type: Bool
+                        value: false
+                  alloc_kind: ~
+              moved_paths: []
+            - name: name
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: u
+                    parts:
+                      - type: Field
+                        value: 0
+                  range: ~
+              moved_paths: []
+            - name: age
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: u
+                    parts:
+                      - type: Field
+                        value: 1
+                  range: ~
+              moved_paths: []
+            - name: r
+              value:
+                type: Adt
+                value:
+                  name: Reordered
+                  variant: ~
+                  fields:
+                    - - flag
+                      - type: Bool
+                        value: true
+                    - - count
+                      - type: Uint
+                        value: 2
+                    - - tag
+                      - type: Uint
+                        value: 2
+                  alloc_kind: ~
+              moved_paths: []
+            - name: flag
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: r
+                    parts:
+                      - type: Field
+                        value: 0
+                  range: ~
+              moved_paths: []
+            - name: count
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: r
+                    parts:
+                      - type: Field
+                        value: 1
+                  range: ~
+              moved_paths: []
+            - name: tag
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: r
+                    parts:
+                      - type: Field
+                        value: 2
+                  range: ~
+              moved_paths: []
+    heap:
+      locations:
+        - type: Array
+          value:
+            type: Only
+            value:
+              - - type: Char
+                  value: 85
+                - type: Char
+                  value: 82
+                - type: Char
+                  value: 83
+                - type: Char
+                  value: 85
+                - type: Char
+                  value: 76
+                - type: Char
+                  value: 65
+                - type: Char
+                  value: 32
+                - type: Char
+                  value: 83
+                - type: Char
+                  value: 85
+                - type: Char
+                  value: 65
+                - type: Char
+                  value: 82
+              - type: Char
+                value: 79
+  - stack:
+      frames:
+        - name: main
+          body_span:
+            start:
+              line: 14
+              column: 0
+            end:
+              line: 28
+              column: 1
+            filename:
+              private_use_as_methods_instead: 0
+          location:
+            start:
+              line: 26
+              column: 2
+            end:
+              line: 26
+              column: 17
+            filename:
+              private_use_as_methods_instead: 0
+          locals:
+            - name: u
+              value:
+                type: Adt
+                value:
+                  name: User
+                  variant: ~
+                  fields:
+                    - - name
+                      - type: Adt
+                        value:
+                          name: String
+                          variant: ~
+                          fields:
+                            - - vec
+                              - type: Adt
+                                value:
+                                  name: Vec
+                                  variant: ~
+                                  fields:
+                                    - - buf
+                                      - type: Adt
+                                        value:
+                                          name: RawVec
+                                          variant: ~
+                                          fields:
+                                            - - inner
+                                              - type: Adt
+                                                value:
+                                                  name: RawVecInner
+                                                  variant: ~
+                                                  fields:
+                                                    - - ptr
+                                                      - type: Adt
+                                                        value:
+                                                          name: Unique
+                                                          variant: ~
+                                                          fields:
+                                                            - - pointer
+                                                              - type: Adt
+                                                                value:
+                                                                  name: NonNull
+                                                                  variant: ~
+                                                                  fields:
+                                                                    - - pointer
+                                                                      - type: Pointer
+                                                                        value:
+                                                                          path:
+                                                                            segment:
+                                                                              type: Heap
+                                                                              value:
+                                                                                index: 0
+                                                                            parts:
+                                                                              - type: Index
+                                                                                value: 0
+                                                                          range: ~
+                                                                  alloc_kind: ~
+                                                          alloc_kind: ~
+                                                    - - cap
+                                                      - type: Adt
+                                                        value:
+                                                          name: UsizeNoHighBit
+                                                          variant: ~
+                                                          fields:
+                                                            - - "0"
+                                                              - type: Uint
+                                                                value: 13
+                                                          alloc_kind: ~
+                                                  alloc_kind: ~
+                                          alloc_kind: ~
+                                    - - len
+                                      - type: Uint
+                                        value: 13
+                                  alloc_kind: ~
+                          alloc_kind:
+                            type: String
+                            value:
+                              len: 13
+                    - - age
+                      - type: Uint
+                        value: 24
+                    - - active
+                      - type: Bool
+                        value: false
+                  alloc_kind: ~
+              moved_paths: []
+            - name: name
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: u
+                    parts:
+                      - type: Field
+                        value: 0
+                  range: ~
+              moved_paths: []
+            - name: age
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: u
+                    parts:
+                      - type: Field
+                        value: 1
+                  range: ~
+              moved_paths: []
+            - name: r
+              value:
+                type: Adt
+                value:
+                  name: Reordered
+                  variant: ~
+                  fields:
+                    - - flag
+                      - type: Bool
+                        value: false
+                    - - count
+                      - type: Uint
+                        value: 2
+                    - - tag
+                      - type: Uint
+                        value: 2
+                  alloc_kind: ~
+              moved_paths: []
+            - name: flag
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: r
+                    parts:
+                      - type: Field
+                        value: 0
+                  range: ~
+              moved_paths: []
+            - name: count
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: r
+                    parts:
+                      - type: Field
+                        value: 1
+                  range: ~
+              moved_paths: []
+            - name: tag
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: r
+                    parts:
+                      - type: Field
+                        value: 2
+                  range: ~
+              moved_paths: []
+    heap:
+      locations:
+        - type: Array
+          value:
+            type: Only
+            value:
+              - - type: Char
+                  value: 85
+                - type: Char
+                  value: 82
+                - type: Char
+                  value: 83
+                - type: Char
+                  value: 85
+                - type: Char
+                  value: 76
+                - type: Char
+                  value: 65
+                - type: Char
+                  value: 32
+                - type: Char
+                  value: 83
+                - type: Char
+                  value: 85
+                - type: Char
+                  value: 65
+                - type: Char
+                  value: 82
+              - type: Char
+                value: 79
+  - stack:
+      frames:
+        - name: main
+          body_span:
+            start:
+              line: 14
+              column: 0
+            end:
+              line: 28
+              column: 1
+            filename:
+              private_use_as_methods_instead: 0
+          location:
+            start:
+              line: 27
+              column: 2
+            end:
+              line: 27
+              column: 12
+            filename:
+              private_use_as_methods_instead: 0
+          locals:
+            - name: u
+              value:
+                type: Adt
+                value:
+                  name: User
+                  variant: ~
+                  fields:
+                    - - name
+                      - type: Adt
+                        value:
+                          name: String
+                          variant: ~
+                          fields:
+                            - - vec
+                              - type: Adt
+                                value:
+                                  name: Vec
+                                  variant: ~
+                                  fields:
+                                    - - buf
+                                      - type: Adt
+                                        value:
+                                          name: RawVec
+                                          variant: ~
+                                          fields:
+                                            - - inner
+                                              - type: Adt
+                                                value:
+                                                  name: RawVecInner
+                                                  variant: ~
+                                                  fields:
+                                                    - - ptr
+                                                      - type: Adt
+                                                        value:
+                                                          name: Unique
+                                                          variant: ~
+                                                          fields:
+                                                            - - pointer
+                                                              - type: Adt
+                                                                value:
+                                                                  name: NonNull
+                                                                  variant: ~
+                                                                  fields:
+                                                                    - - pointer
+                                                                      - type: Pointer
+                                                                        value:
+                                                                          path:
+                                                                            segment:
+                                                                              type: Heap
+                                                                              value:
+                                                                                index: 0
+                                                                            parts:
+                                                                              - type: Index
+                                                                                value: 0
+                                                                          range: ~
+                                                                  alloc_kind: ~
+                                                          alloc_kind: ~
+                                                    - - cap
+                                                      - type: Adt
+                                                        value:
+                                                          name: UsizeNoHighBit
+                                                          variant: ~
+                                                          fields:
+                                                            - - "0"
+                                                              - type: Uint
+                                                                value: 13
+                                                          alloc_kind: ~
+                                                  alloc_kind: ~
+                                          alloc_kind: ~
+                                    - - len
+                                      - type: Uint
+                                        value: 13
+                                  alloc_kind: ~
+                          alloc_kind:
+                            type: String
+                            value:
+                              len: 13
+                    - - age
+                      - type: Uint
+                        value: 24
+                    - - active
+                      - type: Bool
+                        value: false
+                  alloc_kind: ~
+              moved_paths: []
+            - name: name
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: u
+                    parts:
+                      - type: Field
+                        value: 0
+                  range: ~
+              moved_paths: []
+            - name: age
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: u
+                    parts:
+                      - type: Field
+                        value: 1
+                  range: ~
+              moved_paths: []
+            - name: r
+              value:
+                type: Adt
+                value:
+                  name: Reordered
+                  variant: ~
+                  fields:
+                    - - flag
+                      - type: Bool
+                        value: false
+                    - - count
+                      - type: Uint
+                        value: 2
+                    - - tag
+                      - type: Uint
+                        value: 3
+                  alloc_kind: ~
+              moved_paths: []
+            - name: flag
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: r
+                    parts:
+                      - type: Field
+                        value: 0
+                  range: ~
+              moved_paths: []
+            - name: count
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: r
+                    parts:
+                      - type: Field
+                        value: 1
+                  range: ~
+              moved_paths: []
+            - name: tag
+              value:
+                type: Pointer
+                value:
+                  path:
+                    segment:
+                      type: Stack
+                      value:
+                        frame: 0
+                        local: r
+                    parts:
+                      - type: Field
+                        value: 2
+                  range: ~
+              moved_paths: []
+    heap:
+      locations:
+        - type: Array
+          value:
+            type: Only
+            value:
+              - - type: Char
+                  value: 85
+                - type: Char
+                  value: 82
+                - type: Char
+                  value: 83
+                - type: Char
+                  value: 85
+                - type: Char
+                  value: 76
+                - type: Char
+                  value: 65
+                - type: Char
+                  value: 32
+                - type: Char
+                  value: 83
+                - type: Char
+                  value: 85
+                - type: Char
+                  value: 65
+                - type: Char
+                  value: 82
+              - type: Char
+                value: 79
+  - stack:
+      frames:
+        - name: main
+          body_span:
+            start:
+              line: 14
+              column: 0
+            end:
+              line: 28
+              column: 1
+            filename:
+              private_use_as_methods_instead: 0
+          location:
+            start:
+              line: 28
+              column: 0
+            end:
+              line: 28
+              column: 1
+            filename:
+              private_use_as_methods_instead: 0
+          locals: []
+    heap:
+      locations: []
+result:
+  type: Success

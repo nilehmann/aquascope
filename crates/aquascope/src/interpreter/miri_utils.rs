@@ -5,7 +5,7 @@ use miri::{
 use rustc_abi::{FieldIdx, FieldsShape, Size};
 use rustc_middle::{
   mir::{Local, PlaceElem},
-  ty::{AdtKind, FieldDef, TyKind, layout::TyAndLayout},
+  ty::{AdtKind, FieldDef, Ty, TyKind, layout::TyAndLayout},
 };
 
 pub trait OpTyExt<'tcx, M: Machine<'tcx>>: Sized {
@@ -48,12 +48,41 @@ where
 struct AddressLocator<'a, 'tcx> {
   ecx: &'a InterpCx<'tcx, miri::MiriMachine<'tcx>>,
   target: u64,
+  target_ty: Ty<'tcx>,
   segments: Vec<PlaceElem<'tcx>>,
 }
 
 impl<'tcx> AddressLocator<'_, 'tcx> {
-  fn locate(&mut self, layout: TyAndLayout<'tcx>, mut offset: u64) {
-    if offset == self.target {
+  /// Descends into whichever field of `layout` contains the target address.
+  ///
+  /// Offsets come from the layout rather than from summing up the sizes of the
+  /// preceding fields: rustc is free to reorder fields and to insert padding
+  /// between them, so declaration order says nothing about where a field
+  /// actually lives.
+  fn locate_field(
+    &mut self,
+    layout: TyAndLayout<'tcx>,
+    base: u64,
+    n_fields: usize,
+  ) {
+    for i in 0 .. n_fields {
+      let field = layout.field(self.ecx, i);
+      let offset = base + layout.layout.fields().offset(i).bytes();
+      if offset <= self.target && self.target < offset + field.size.bytes() {
+        self
+          .segments
+          .push(PlaceElem::Field(FieldIdx::from_usize(i), field.ty));
+        self.locate(field, offset);
+        return;
+      }
+    }
+  }
+
+  fn locate(&mut self, layout: TyAndLayout<'tcx>, offset: u64) {
+    // A field at the start of its parent shares the parent's address, so the
+    // address alone doesn't say which of them is being pointed at. The pointee
+    // type breaks the tie: keep descending until it matches.
+    if offset == self.target && layout.ty == self.target_ty {
       return;
     }
 
@@ -66,18 +95,7 @@ impl<'tcx> AddressLocator<'_, 'tcx> {
           AdtKind::Struct => match name.as_str() {
             "String" | "Vec" => {}
             _ => {
-              for (i, _field) in adt_def.all_fields().enumerate() {
-                let field = layout.field(self.ecx, i);
-                if offset + field.size.bytes() > self.target {
-                  self
-                    .segments
-                    .push(PlaceElem::Field(FieldIdx::from_usize(i), field.ty));
-                  self.locate(field, offset);
-                  break;
-                }
-
-                offset += field.size.bytes();
-              }
+              self.locate_field(layout, offset, adt_def.all_fields().count())
             }
           },
           AdtKind::Enum => todo!(),
@@ -103,22 +121,18 @@ impl<'tcx> AddressLocator<'_, 'tcx> {
 
       TyKind::Tuple(tys) => {
         // dbg!(("tuple", offset, target));
-        for i in 0 .. tys.len() {
-          let field = layout.field(self.ecx, i);
-          if offset + field.size.bytes() > self.target {
-            self
-              .segments
-              .push(PlaceElem::Field(FieldIdx::from_usize(i), field.ty));
-            self.locate(field, offset);
-            break;
-          }
-
-          offset += field.size.bytes();
-        }
+        self.locate_field(layout, offset, tys.len())
       }
 
       _ if ty.is_primitive() || ty.is_any_ptr() => {
-        panic!("offset {offset} != target {}", self.target)
+        // A pointee whose type never matched anything along the way (a `&[T]`
+        // into an array, say, or a raw pointer cast) bottoms out here, and the
+        // path found so far is the closest we can get.
+        assert_eq!(
+          offset, self.target,
+          "offset {offset} != target {}",
+          self.target
+        );
       }
 
       ty => unimplemented!("{ty:#?}"),
@@ -137,6 +151,7 @@ pub fn locate_address_in_type<'tcx>(
   let mut locator = AddressLocator {
     ecx,
     target: target.bytes(),
+    target_ty: mplace.layout.ty,
     segments: Vec::new(),
   };
 

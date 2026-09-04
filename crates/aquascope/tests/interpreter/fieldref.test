@@ -1,0 +1,29 @@
+struct User {
+  name: String,
+  age: u32,
+  active: bool,
+}
+
+// Rustc lays this struct out as `count`, `flag`, `tag`, so a field's position
+// in memory doesn't follow its position in the declaration.
+struct Reordered {
+  flag: bool,
+  count: u32,
+  tag: u8,
+}
+
+fn main() {
+  let mut u = User { name: String::from("Ursula Suario"), age: 23, active: false };
+  let name = &mut u.name;
+  let age = &mut u.age;
+  *age += 1;
+  name.make_ascii_uppercase();
+
+  let mut r = Reordered { flag: true, count: 1, tag: 2 };
+  let flag = &mut r.flag;
+  let count = &mut r.count;
+  let tag = &mut r.tag;
+  *count += 1;
+  *flag = !*flag;
+  *tag += 1;
+}
