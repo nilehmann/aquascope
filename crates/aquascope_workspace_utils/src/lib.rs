@@ -5,15 +5,27 @@ use anyhow::{Context, Result, bail};
 const TOOLCHAIN_TOML: &str = include_str!("../rust-toolchain.toml");
 
 pub fn run_and_get_output(cmd: &mut Command) -> Result<String> {
-  let output = cmd.output()?;
+  let output = cmd
+    .output()
+    .with_context(|| format!("Failed to run `{}`", display_command(cmd)))?;
   if !output.status.success() {
     bail!(
-      "Command failed with stderr:\n{}",
-      String::from_utf8(output.stderr).unwrap()
+      "`{}` failed ({}) with stderr:\n{}",
+      display_command(cmd),
+      output.status,
+      String::from_utf8_lossy(&output.stderr).trim_end()
     );
   }
   let stdout = String::from_utf8(output.stdout)?;
   Ok(stdout.trim_end().to_string())
+}
+
+fn display_command(cmd: &Command) -> String {
+  std::iter::once(cmd.get_program())
+    .chain(cmd.get_args())
+    .map(|arg| arg.to_string_lossy())
+    .collect::<Vec<_>>()
+    .join(" ")
 }
 
 pub fn rustc() -> Result<PathBuf> {
@@ -54,15 +66,41 @@ pub fn miri_sysroot() -> Result<PathBuf> {
     return Ok(sysroot.into());
   }
 
+  let toolchain = toolchain().ok();
   let mut cmd = Command::new("cargo");
-  if let Ok(toolchain) = toolchain() {
+  if let Some(toolchain) = &toolchain {
     cmd.arg(format!("+{}", toolchain));
   }
+  cmd.args(["miri", "setup", "--print-sysroot"]);
 
-  let output = cmd.args(["miri", "setup", "--print-sysroot"]).output()?;
-  if !output.status.success() {
-    bail!("Command failed");
-  }
-  let stdout = String::from_utf8(output.stdout)?;
-  Ok(PathBuf::from(stdout.trim_end()))
+  let stdout = run_and_get_output(&mut cmd).with_context(|| {
+    let mut msg = String::from("Could not locate the Miri sysroot.");
+    if let Some(toolchain) = &toolchain {
+      msg.push_str(&format!(
+        " Aquascope needs the {toolchain} toolchain with Miri installed. \
+         If it is missing or broken, reinstall it with:\n\n  \
+         rustup toolchain install {toolchain} --force --component {}\n",
+        toolchain_components().join(" --component ")
+      ));
+    }
+    msg.push_str("\nAlternatively, set MIRI_SYSROOT to an existing sysroot.");
+    msg
+  })?;
+  Ok(PathBuf::from(stdout))
+}
+
+fn toolchain_components() -> Vec<String> {
+  let Ok(config) = toml::from_str::<toml::Value>(TOOLCHAIN_TOML) else {
+    return vec!["miri".into()];
+  };
+  config
+    .get("toolchain")
+    .and_then(|t| t.get("components"))
+    .and_then(|c| c.as_array())
+    .map(|c| {
+      c.iter()
+        .filter_map(|v| v.as_str().map(String::from))
+        .collect()
+    })
+    .unwrap_or_else(|| vec!["miri".into()])
 }
