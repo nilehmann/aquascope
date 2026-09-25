@@ -108,6 +108,8 @@ caller's is the origin the two `vec!`s live in.
 | `[[a:TEXT:]]` | `TEXT` framed in origin `a`'s box; nests |
 | `[[?:TEXT:]]` | `TEXT` framed in a box with no origin colour |
 | `[[*:TEXT:]]` | a tight dashed box: what is *actually* borrowed, where the origin around it over-approximates |
+| `[[^:TEXT:]]` | no box: `TEXT` shows its type on hover (see [Types on hover](#types-on-hover)) |
+| `[[+N:TEXT:]]` | no box: `TEXT` appears on click `N` (see [Stepping through code](#stepping-through-code)) |
 
 The sigils are sugar: `'!a` is `[[a:'a:]]` and `'?a` is `[[?:'a:]]`. They exist
 because a deck writes far more lifetimes than frames, and a bracket around each
@@ -122,6 +124,54 @@ The frame close is `:]]` rather than `]]` because framed text usually ends in a
 bracket, as in `vec![1, 2, 3]`. Everything between the colons is kept verbatim,
 spaces included: it lands inside the box, so padding there would shift the code
 away from the lines around it.
+
+### Types on hover
+
+`[[^:EXPR:]]` draws no box. It makes `EXPR` show its type while the pointer
+is over it, for a slide that walks through what each part of an expression
+is:
+
+`````markdown
+```origins
+# use std::ops::Deref;
+# struct MyBox<T>(T);
+# impl<T> MyBox<T> { fn new(x: T) -> MyBox<T> { MyBox(x) } }
+# impl<T> Deref for MyBox<T> { type Target = T; fn deref(&self) -> &T { &self.0 } }
+fn main() {
+    let [[^:b:]] = MyBox::new(5);
+    let x = [[^:*([[^:[[^:b:]].deref():]]):]] + 1;
+}
+```
+`````
+
+The type is not written in the block. It is asked of the compiler at build
+time, so it is the type rustc gave that expression and cannot drift from the
+code. It is the type as written, before any `&` or `*` rustc inserts: `b` in
+`b.deref()` is a `MyBox<i32>`, not the `&MyBox<i32>` it is borrowed as for
+the call. Paths are trimmed to their last segment, as in a diagnostic.
+
+Markers nest, and only the innermost one under the pointer answers, so
+hovering `b` above names `b` rather than the call around it. They combine
+with origin boxes, hidden lines and `run`.
+
+A marker has to cover exactly one expression, or the name a `let` or a
+parameter binds -- `let mut [[^:b:]]` -- and one that does not fails the
+build: `[[^:b.deref:]]()` is neither. An expression inside
+parentheses can be marked with or without them. A marker in a `notation`
+block is an error too, since nothing is compiled to ask, and so is one on a
+hidden line, which would show nothing. In a `shouldFail` block the types are
+there as long as the error comes after type checking -- a borrow-check error,
+which is what such a block usually shows.
+
+The types come from `aquascope-driver types`, run the same way as the
+```` ```aquascope ```` blocks, so a block with a type marker needs the same
+nightly toolchain and shares their cache (`.aquascope-cache`). A block without
+one is still checked with plain `rustc`.
+
+The rendered expression is a `<span class="ty" data-type="…">`. Its colours
+are `--ty-hover`, `--ty-tip-bg` and `--ty-tip-fg`. The tooltip hangs below the
+code, so a container of the deck's own that clips its contents needs
+`overflow: visible` for it to show.
 
 ### Compiling, and the Run button
 
@@ -146,7 +196,7 @@ because the sigils say which lifetimes are notation:
 
 | in the block | in the program |
 | --- | --- |
-| `[[a:…:]]`, `[[?:…:]]`, `[[*:…:]]` | erased |
+| `[[a:…:]]`, `[[?:…:]]`, `[[*:…:]]`, `[[^:…:]]` | erased |
 | `'!a` | `'_` -- a concrete origin is the lifetime inference would pick, and is not nameable where the notation writes it |
 | `'?a` | `'a` |
 | `'a` | `'a` |
@@ -180,6 +230,71 @@ let r: &'!a Vec<i32> = &v;
 
 Hidden lines are what make `run` useful at all: a Run button on a fragment
 could only ever print a compile error.
+
+### Stepping through code
+
+A block can reveal its code a click at a time. `#N` in front of a line shows
+that line on click `N`:
+
+`````markdown
+```origins,run
+fn main() {
+    let v = vec![1, 2, 3];
+    #1 let r = &v;
+    #2 v.push(4);
+    #3 println!("{r:?}");
+}
+```
+`````
+
+The marker goes after the indentation, and the one space after it is dropped,
+which is the rule `# ` follows for a hidden line: the marker's characters never
+count as indentation, so `#1 fn helper() {` is a top-level line. `#` followed
+by a digit is never Rust at the start of a line (an attribute is `#[`), and
+`##1` is the escaped `#1`, as `##` is everywhere else.
+
+For several lines at once, or part of one, `[[+N:…:]]` is a frame like any
+other and nests with them:
+
+`````markdown
+```origins
+fn longest<[[+1:'?a:]]>(x: &[[+1:'?a :]]str, y: &[[+1:'?a :]]str) -> &[[+1:'?a :]]str {
+    if x.len() > y.len() { x } else { y }
+}
+
+[[+2:
+fn main() {
+    #3 let s = longest("ab", "c");
+}
+:]]
+```
+`````
+
+**A line holding nothing but opening markers, or nothing but `:]]`, is folded
+into its neighbour** -- the opening ones onto the start of the next line's
+code, the closing ones onto the end of the line before. That is what lets a
+marker wrap whole lines without leaving a blank line where it sat, and it holds
+for every frame, so `[[a:` and `:]]` on lines of their own frame a struct
+with no blank line at either end of the box.
+
+`N` is reveal's `data-fragment-index`, not a count within the block, so code
+and prose line up: a `<div class="fragment" data-fragment-index="2">` beside
+the block appears on the same click as its `#2` lines. Steps count from 1.
+
+A step is a `<span class="fragment" data-fragment-index="N">` around the code,
+which reveal hides with `visibility`, so a hidden step keeps its space and the
+block's frame does not grow as the steps arrive. A step covering the same code
+as a box is emitted outside it, so the box is hidden with its code.
+
+Steps only change what is visible. The block is compiled and run as the whole
+program, whichever steps are showing, and the intermediate states are not
+checked -- when one has to be, write each as its own block and swap them with
+fragments. A `shouldFail` block's crab is there from the start. Steps may be
+used in a `notation` block.
+
+The build fails on a step that could not show: `#0`, a step on a hidden line,
+a step inside another with a lower number, and a `#N` line that opens a marker
+it does not close.
 
 ### Styling
 

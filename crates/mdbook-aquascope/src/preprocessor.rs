@@ -172,6 +172,44 @@ impl AquascopePreprocessor {
     Ok(html.finish())
   }
 
+  /// Runs one aquascope-driver subcommand on `code` and returns its JSON,
+  /// through the same cache as the ```aquascope blocks.
+  ///
+  /// For tools that want the driver's answer about a program rather than a
+  /// diagram of it -- aquascope-reveal asks for `types` to fill in its
+  /// type-on-hover markers.
+  pub fn query(
+    &self,
+    code: &str,
+    operation: &str,
+    should_fail: bool,
+  ) -> Result<serde_json::Value> {
+    let block = AquascopeBlock {
+      operations: vec![operation.to_string()],
+      config: if should_fail {
+        vec![("shouldFail".to_string(), "true".to_string())]
+      } else {
+        Vec::new()
+      },
+      code: code.to_string(),
+      annotations: Default::default(),
+    };
+    let cached = self.cache.read().unwrap().get(&block).cloned();
+    let response = match cached {
+      Some(response) => response,
+      None => {
+        let response = self.run_aquascope(&block)?;
+        self.cache.write().unwrap().set(block, response.clone());
+        response
+      }
+    };
+    let mut responses: HashMap<String, serde_json::Value> =
+      serde_json::from_str(response.trim_end())?;
+    responses
+      .remove(operation)
+      .ok_or_else(|| anyhow::anyhow!("aquascope gave no `{operation}` result"))
+  }
+
   pub fn replacements(
     &self,
     content: &str,

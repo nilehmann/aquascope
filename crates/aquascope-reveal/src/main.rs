@@ -21,6 +21,7 @@ mod lint;
 mod origins;
 mod run;
 mod serve;
+mod types;
 
 /// Assets copied verbatim into `<out>/aquascope/`. The first two come from the
 /// frontend build via build.rs; the last two are the reveal.js glue.
@@ -96,7 +97,10 @@ struct Args {
 
 /// Applies the preprocessor's byte-range replacements back-to-front, so that
 /// each splice leaves the ranges of the not-yet-applied ones valid.
-fn apply(content: &str, mut edits: Vec<(std::ops::Range<usize>, String)>) -> String {
+fn apply(
+  content: &str,
+  mut edits: Vec<(std::ops::Range<usize>, String)>,
+) -> String {
   edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
   let mut out = content.to_string();
   for (range, html) in edits {
@@ -161,7 +165,8 @@ fn build(args: &Args, preprocessor: &mut AquascopePreprocessor) -> Result<()> {
     source[.. source.len() - body.len()].lines().count() + 1;
 
   let mut edits = preprocessor.replacements(body)?;
-  let (origin_edits, programs) = origins::replacements(body, first_body_line)?;
+  let (origin_edits, programs) =
+    origins::replacements(body, first_body_line, &*preprocessor)?;
   edits.extend(origin_edits);
   let content = apply(body, edits);
 
@@ -221,17 +226,13 @@ fn build(args: &Args, preprocessor: &mut AquascopePreprocessor) -> Result<()> {
 
   // Explicit flags win over the front matter, which wins over the defaults.
   let reveal_options = front.reveal_options_json();
-  let title = args
-    .title
-    .clone()
-    .or(front.title)
-    .unwrap_or_else(|| {
-      args
-        .input
-        .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "Slides".to_string())
-    });
+  let title = args.title.clone().or(front.title).unwrap_or_else(|| {
+    args
+      .input
+      .file_stem()
+      .map(|s| s.to_string_lossy().into_owned())
+      .unwrap_or_else(|| "Slides".to_string())
+  });
   let theme = args
     .theme
     .clone()

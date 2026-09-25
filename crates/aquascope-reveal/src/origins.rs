@@ -52,6 +52,14 @@
 //! the colons is kept verbatim, spaces included: it lands inside the box, so
 //! padding there would shift the code away from the lines around it.
 //!
+//! `[[+N:TEXT:]]` is not a box either: it reveals `TEXT` on click `N`, as a
+//! reveal fragment. `#N ` in front of a line is the same for the whole line.
+//!
+//! `[[^:EXPR:]]` is not a box: it makes `EXPR` show its type on hover. The
+//! type is not written in the block but asked of the compiler, by the
+//! `types` module, so it cannot be wrong, and a marker that is not exactly
+//! one expression fails the build.
+//!
 //! Colours are the deck's own: `.origin-a`, `.origin-b`, ... on `.oframe` and
 //! `.oname`, with `.oexact` for the dashed box. A box with no `origin-*` class
 //! draws neutral, which is how a generic parameter is shown. Only the letters
@@ -64,6 +72,8 @@ use std::{cmp::Reverse, ops::Range};
 
 use anyhow::{bail, Context, Result};
 use ra_ap_rustc_lexer::{tokenize, FrontmatterAllowed, LiteralKind, TokenKind};
+
+use crate::types::{self, Typer};
 
 pub type Replacement = (Range<usize>, String);
 
@@ -143,6 +153,170 @@ struct Span {
   /// box framing exactly one token frames the highlighting rather than
   /// splitting it.
   is_marker: bool,
+  /// For a `[[^:…:]]` marker, the type shown on hover, once it is known.
+  data_type: Option<String>,
+  /// For a `[[+N:…:]]` marker, the step it is revealed on.
+  step: Option<u32>,
+}
+
+/// A block body as shown and as compiled, the way every other pass wants it:
+/// `#N` lines expanded into step markers, hidden lines split out, and lines
+/// holding nothing but a marker folded into their neighbours.
+fn prepare(body: &str) -> Result<(String, String)> {
+  let (shown, all) = split_hidden(&expand_steps(body)?);
+  Ok((fold_marker_lines(&shown), fold_marker_lines(&all)))
+}
+
+/// Whether a line, with its indentation trimmed, is a hidden one. The code it
+/// hides follows.
+fn hidden(rest: &str) -> Option<&str> {
+  rest
+    .strip_prefix("# ")
+    .or(rest.strip_prefix("#").filter(|r| r.is_empty()))
+}
+
+/// `#N code`, with its indentation trimmed: the step, and the code with the
+/// one space after the number dropped. `#N` alone reveals an empty line.
+fn step_line(rest: &str) -> Option<(u32, &str)> {
+  let after = rest.strip_prefix('#')?;
+  let n = after.bytes().take_while(u8::is_ascii_digit).count();
+  if n == 0 {
+    return None;
+  }
+  let code = &after[n ..];
+  let code = if code.is_empty() {
+    code
+  } else {
+    code.strip_prefix(' ')?
+  };
+  Some((after[.. n].parse().ok()?, code))
+}
+
+/// Rewrites every `#N code` line as `[[+N:code:]]`, keeping the indentation
+/// in front of the marker, so that a step line is only sugar and nothing past
+/// this point needs to know about it.
+///
+/// The marker goes after the indentation rather than in the first column,
+/// which is the same rule as `# ` for a hidden line: the characters of the
+/// marker never count as indentation, so a line at the top level can be a
+/// step too. `#` then a digit is never Rust at the start of a line -- an
+/// attribute is `#[` or `#![` -- and `##1` is still the escaped `#1`.
+fn expand_steps(body: &str) -> Result<String> {
+  let mut out = Vec::new();
+  for line in body.split('\n') {
+    let (line, cr) = match line.strip_suffix('\r') {
+      Some(line) => (line, "\r"),
+      None => (line, ""),
+    };
+    let indent = &line[.. line.len() - line.trim_start().len()];
+    let rest = line.trim_start();
+
+    if let Some(code) = hidden(rest) {
+      if step_line(code.trim_start()).is_some() || has_step(code) {
+        bail!("a step marker on a hidden line would show nothing");
+      }
+      out.push(format!("{line}{cr}"));
+      continue;
+    }
+
+    match step_line(rest) {
+      Some((step, code)) => {
+        if !balanced(code) {
+          bail!(
+            "the `#{step}` line opens or closes a marker it does not also \
+             close or open. Wrap several lines in `[[+{step}:` … `:]]` \
+             instead"
+          );
+        }
+        out.push(format!("{indent}[[+{step}:{code}:]]{cr}"));
+      }
+      None => out.push(format!("{line}{cr}")),
+    }
+  }
+  Ok(out.join("\n"))
+}
+
+/// Whether `text` holds a `[[+N:` marker.
+fn has_step(text: &str) -> bool {
+  (0 .. text.len()).any(|i| {
+    matches!(opener(&text.as_bytes()[i ..]), Some((Opener::Step(_), _)))
+  })
+}
+
+/// Whether every marker `text` opens it also closes, and the other way round.
+fn balanced(text: &str) -> bool {
+  let bytes = text.as_bytes();
+  let (mut depth, mut i) = (0usize, 0);
+  while i < bytes.len() {
+    if let Some((_, len)) = opener(&bytes[i ..]) {
+      depth += 1;
+      i += len;
+    } else if bytes[i ..].starts_with(b":]]") {
+      let Some(d) = depth.checked_sub(1) else {
+        return false;
+      };
+      depth = d;
+      i += 3;
+    } else {
+      i += 1;
+    }
+  }
+  depth == 0
+}
+
+/// Folds a line holding nothing but opening markers into the start of the
+/// line after it, and one holding nothing but `:]]` into the end of the line
+/// before it.
+///
+/// This is what lets a marker wrap whole lines -- a function revealed on one
+/// step, an origin box around a struct -- without the lines the markers sit
+/// on turning into blank lines inside it. An opening marker lands after the
+/// next line's indentation, so a box starts at the code rather than at the
+/// margin.
+fn fold_marker_lines(text: &str) -> String {
+  fn only_openers(mut t: &str) -> bool {
+    while let Some((_, len)) = opener(t.as_bytes()) {
+      t = &t[len ..];
+    }
+    t.is_empty()
+  }
+  fn only_closers(t: &str) -> bool {
+    t.split(":]]").all(str::is_empty)
+  }
+
+  let all: Vec<&str> = text.split('\n').collect();
+  let mut out: Vec<String> = Vec::new();
+  let mut pending = String::new();
+
+  for (n, line) in all.iter().enumerate() {
+    let t = line.trim();
+    if !t.is_empty() && only_openers(t) && n + 1 < all.len() {
+      pending.push_str(t);
+      continue;
+    }
+    if !t.is_empty() && only_closers(t) {
+      if !pending.is_empty() {
+        pending.push_str(t);
+        continue;
+      }
+      if let Some(prev) = out.last_mut() {
+        let at = prev.strip_suffix('\r').unwrap_or(prev).len();
+        prev.insert_str(at, t);
+        continue;
+      }
+    }
+    let at = line.len() - line.trim_start().len();
+    out.push(format!(
+      "{}{}{}",
+      &line[.. at],
+      std::mem::take(&mut pending),
+      &line[at ..]
+    ));
+  }
+  if !pending.is_empty() {
+    out.push(pending);
+  }
+  out.join("\n")
 }
 
 /// Splits a block body into the lines that are shown and the whole program.
@@ -157,10 +331,7 @@ fn split_hidden(body: &str) -> (String, String) {
   for line in body.split('\n') {
     let indent = &line[.. line.len() - line.trim_start().len()];
     let rest = line.trim_start();
-    if let Some(code) = rest
-      .strip_prefix("# ")
-      .or(rest.strip_prefix("#").filter(|r| r.is_empty()))
-    {
+    if let Some(code) = hidden(rest) {
       all.push(format!("{indent}{code}"));
     } else if let Some(code) = rest.strip_prefix("##") {
       shown.push(format!("{indent}#{code}"));
@@ -181,21 +352,28 @@ fn split_hidden(body: &str) -> (String, String) {
 /// origin is the lifetime the compiler infers, so `'!a` becomes `'_`; a
 /// generic parameter is a parameter, so `'?a` becomes `'a`.
 fn program(all: &str) -> String {
+  program_and_types(all).0
+}
+
+/// [`program`], along with the byte range in it of every `[[^:…:]]` marker,
+/// in the order [`strip`] reports markers -- by where they close -- so the two
+/// can be paired up one to one.
+fn program_and_types(all: &str) -> (String, Vec<Range<usize>>) {
   let mut out = String::new();
+  let mut open: Vec<(Opener, usize)> = Vec::new();
+  let mut types = Vec::new();
   let bytes = all.as_bytes();
   let mut i = 0;
   while i < bytes.len() {
-    if bytes[i ..].starts_with(b"[[")
-      && i + 4 <= bytes.len()
-      && bytes[i + 3] == b':'
-      && (bytes[i + 2].is_ascii_lowercase()
-        || bytes[i + 2] == b'*'
-        || bytes[i + 2] == b'?')
-    {
-      i += 4;
+    if let Some((kind, len)) = opener(&bytes[i ..]) {
+      open.push((kind, out.len()));
+      i += len;
       continue;
     }
     if bytes[i ..].starts_with(b":]]") {
+      if let Some((Opener::Frame(b'^'), start)) = open.pop() {
+        types.push(start .. out.len());
+      }
       i += 3;
       continue;
     }
@@ -226,14 +404,49 @@ fn program(all: &str) -> String {
     out.push(ch);
     i += ch.len_utf8();
   }
-  out
+  (out, types)
+}
+
+/// The characters that can follow `[[` to open a frame: an origin letter,
+/// `*` for the dashed box, `?` for the neutral one, `^` for a type on hover.
+fn is_frame_key(key: u8) -> bool {
+  key.is_ascii_lowercase() || matches!(key, b'*' | b'?' | b'^')
+}
+
+/// What a `[[…:` marker opens.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Opener {
+  /// A frame, by its key: see [`is_frame_key`].
+  Frame(u8),
+  /// `[[+N:`, code revealed on step N.
+  Step(u32),
+}
+
+/// The marker `bytes` starts with, and its length. Anything else starting with
+/// `[[` is ordinary code, such as a nested index.
+fn opener(bytes: &[u8]) -> Option<(Opener, usize)> {
+  let rest = bytes.strip_prefix(b"[[")?;
+  if let Some(digits) = rest.strip_prefix(b"+") {
+    let n = digits.iter().take_while(|c| c.is_ascii_digit()).count();
+    if n == 0 || digits.get(n) != Some(&b':') {
+      return None;
+    }
+    let step = std::str::from_utf8(&digits[.. n]).ok()?.parse().ok()?;
+    return Some((Opener::Step(step), n + 4));
+  }
+  match rest {
+    [key, b':', ..] if is_frame_key(*key) => Some((Opener::Frame(*key), 4)),
+    _ => None,
+  }
 }
 
 /// The class a frame key asks for. `*` is the dashed box, `?` a box with no
-/// origin colour, and a letter that origin's colour.
+/// origin colour, `^` a type shown on hover, and a letter that origin's
+/// colour.
 fn frame_class(key: char) -> String {
   match key {
     '*' => "oexact".to_string(),
+    '^' => "ty".to_string(),
     '?' => "oframe".to_string(),
     letter => format!("oframe origin-{letter}"),
   }
@@ -247,17 +460,31 @@ fn strip(src: &str) -> Result<(String, Vec<Span>)> {
   let mut i = 0;
 
   while i < bytes.len() {
-    // `[[x:` opens a frame. Anything else starting with `[[` is ordinary code,
-    // such as a nested index.
-    if bytes[i ..].starts_with(b"[[")
-      && i + 4 <= bytes.len()
-      && bytes[i + 3] == b':'
-      && (bytes[i + 2].is_ascii_lowercase()
-        || bytes[i + 2] == b'*'
-        || bytes[i + 2] == b'?')
-    {
-      open.push((code.len(), frame_class(bytes[i + 2] as char)));
-      i += 4;
+    // `[[x:` opens a frame, `[[+N:` a step.
+    if let Some((kind, len)) = opener(&bytes[i ..]) {
+      let step = match kind {
+        Opener::Frame(key) => {
+          open.push((code.len(), frame_class(key as char), None));
+          i += len;
+          continue;
+        }
+        Opener::Step(step) => step,
+      };
+      if step == 0 {
+        bail!("steps count from 1, the first click: `[[+0:` is never shown");
+      }
+      // A step inside another is hidden until the outer one shows, so one
+      // numbered lower would appear on a click where nothing does.
+      if let Some(outer) = open.iter().filter_map(|o| o.2).max() {
+        if step < outer {
+          bail!(
+            "step {step} is inside step {outer}, so it could not show before \
+             step {outer} does"
+          );
+        }
+      }
+      open.push((code.len(), "fragment".to_string(), Some(step)));
+      i += len;
       continue;
     }
 
@@ -287,18 +514,22 @@ fn strip(src: &str) -> Result<(String, Vec<Span>)> {
         range: start .. code.len(),
         class: frame_class(key),
         is_marker: true,
+        data_type: None,
+        step: None,
       });
       continue;
     }
 
     if bytes[i ..].starts_with(b":]]") {
-      let (start, class) = open
+      let (start, class, step) = open
         .pop()
         .context("`:]]` with no matching `[[` origin marker")?;
       spans.push(Span {
         range: start .. code.len(),
         class,
         is_marker: true,
+        data_type: None,
+        step,
       });
       i += 3;
       continue;
@@ -362,6 +593,8 @@ fn highlight(code: &str) -> Vec<Span> {
             range: range.start .. bang.0.end,
             class: "hljs-built_in".to_string(),
             is_marker: false,
+            data_type: None,
+            step: None,
           });
           continue;
         }
@@ -394,6 +627,8 @@ fn highlight(code: &str) -> Vec<Span> {
       range: range.clone(),
       class,
       is_marker: false,
+      data_type: None,
+      step: None,
     });
   }
 
@@ -427,6 +662,8 @@ fn split_at_markers(spans: Vec<Span>, markers: &[Span]) -> Vec<Span> {
           range: start .. cut,
           class: span.class.clone(),
           is_marker: false,
+          data_type: None,
+          step: None,
         });
         start = cut;
       }
@@ -457,14 +694,15 @@ fn push_escaped(out: &mut String, text: &str) {
   }
 }
 
-/// Renders one block's worth of marked-up Rust.
-pub fn render(src: &str, opts: &Options) -> Result<String> {
+/// Renders one block's worth of marked-up Rust. `typer` is asked for the
+/// block's types only if it has a `[[^:…:]]` marker.
+pub fn render(src: &str, opts: &Options, typer: &dyn Typer) -> Result<String> {
   // The block's last line ends in a newline that belongs to the closing fence,
   // not to the code. Exactly that one comes off, so the rendered block has the
   // lines the author wrote -- blank ones at either end included.
   let src = src.strip_suffix('\n').unwrap_or(src);
   let src = src.strip_suffix('\r').unwrap_or(src);
-  let (shown, _) = split_hidden(src);
+  let (shown, all) = prepare(src)?;
   let (code, mut markers) = strip(&shown)?;
 
   // A frame whose text is exactly one lifetime is that lifetime's own box, so
@@ -481,6 +719,8 @@ pub fn render(src: &str, opts: &Options) -> Result<String> {
     }
   }
 
+  fill_types(&all, opts, &mut markers, typer)?;
+
   // `.oname` carries the colour and the weight, so a boxed lifetime must not
   // also carry its token class: the inner span's colour would win over the
   // origin's.
@@ -491,9 +731,17 @@ pub fn render(src: &str, opts: &Options) -> Result<String> {
 
   let mut spans = split_at_markers(tokens, &markers);
   spans.extend(markers);
-  // Opened outermost-first at each offset, and a marker outside a token span
-  // covering the same range.
-  spans.sort_by_key(|s| (s.range.start, Reverse(s.range.end), !s.is_marker));
+  // Opened outermost-first at each offset, a marker outside a token span
+  // covering the same range, and a step outside a box covering the same range
+  // -- otherwise the box would stay on the slide around the hidden code.
+  spans.sort_by_key(|s| {
+    (
+      s.range.start,
+      Reverse(s.range.end),
+      !s.is_marker,
+      s.step.is_none(),
+    )
+  });
 
   let mut out = String::new();
   let mut stack: Vec<usize> = Vec::new();
@@ -511,7 +759,18 @@ pub fn render(src: &str, opts: &Options) -> Result<String> {
     }
     push_escaped(&mut out, &code[at .. span.range.start]);
     at = span.range.start;
-    out.push_str(&format!(r#"<span class="{}">"#, span.class));
+    match &span.data_type {
+      Some(ty) => out.push_str(&format!(
+        r#"<span class="{}" data-type="{}""#,
+        span.class,
+        attribute(ty)
+      )),
+      None => out.push_str(&format!(r#"<span class="{}""#, span.class)),
+    }
+    if let Some(step) = span.step {
+      out.push_str(&format!(r#" data-fragment-index="{step}""#));
+    }
+    out.push('>');
     stack.push(span.range.end);
   }
   while let Some(end) = stack.pop() {
@@ -581,7 +840,6 @@ pub fn render(src: &str, opts: &Options) -> Result<String> {
   // spanning lines would put a blank line inside the raw-HTML block, which is
   // the one thing that breaks it.
   let run = if opts.run {
-    let (_, all) = split_hidden(src);
     format!(" data-run-code=\"{}\"", attribute(&program(&all)))
   } else {
     String::new()
@@ -594,6 +852,42 @@ pub fn render(src: &str, opts: &Options) -> Result<String> {
   Ok(format!(
     r#"<div class="origins-block"{run}>{crab}<pre class="code hljs">{body}</pre></div>"#
   ))
+}
+
+/// Asks `typer` for the type of every `[[^:…:]]` marker among `markers`, and
+/// records it on the marker.
+///
+/// The markers were found in the code as shown, the types are reported
+/// against the program as compiled -- hidden lines put back, notation
+/// translated -- so each marker is located again in the program, and the two
+/// lists paired in order.
+fn fill_types(
+  all: &str,
+  opts: &Options,
+  markers: &mut [Span],
+  typer: &dyn Typer,
+) -> Result<()> {
+  let mut typed: Vec<&mut Span> =
+    markers.iter_mut().filter(|m| m.class == "ty").collect();
+  if typed.is_empty() {
+    return Ok(());
+  }
+  if opts.notation {
+    bail!(
+      "a `[[^:…:]]` marker asks the compiler for a type, and a `notation` \
+       block is not compiled"
+    );
+  }
+
+  let (program, ranges) = program_and_types(all);
+  if ranges.len() != typed.len() {
+    bail!("a `[[^:…:]]` marker on a hidden line would show nothing");
+  }
+  let found = typer.expr_types(&program, opts.should_fail)?;
+  for (marker, range) in typed.iter_mut().zip(ranges) {
+    marker.data_type = Some(types::type_at(&program, &found, range)?);
+  }
+  Ok(())
 }
 
 /// Escapes a string for use as an HTML attribute value, newlines included.
@@ -623,6 +917,7 @@ fn attribute(text: &str) -> String {
 pub fn replacements(
   content: &str,
   first_line: usize,
+  typer: &dyn Typer,
 ) -> Result<(Vec<Replacement>, Vec<Program>)> {
   /// The backtick count of a fence line, and whatever follows it.
   fn fence(line: &str) -> Option<(usize, &str)> {
@@ -678,12 +973,12 @@ pub fn replacements(
     let opts = Options::parse(spec)
       .with_context(|| format!("in the ```origins block at line {line}"))?;
 
-    let html = render(&body, &opts)
+    let html = render(&body, &opts, typer)
       .with_context(|| format!("in the ```origins block at line {line}"))?;
     out.push((start .. end, html));
 
     if opts.checked() {
-      let (_, all) = split_hidden(body.strip_suffix('\n').unwrap_or(&body));
+      let (_, all) = prepare(body.strip_suffix('\n').unwrap_or(&body))?;
       programs.push(Program {
         line,
         code: program(&all),
@@ -728,17 +1023,102 @@ pub fn check(programs: &[Program]) -> Vec<String> {
 #[cfg(test)]
 mod test {
   use super::*;
+  use crate::types::ExprType;
+
+  /// For blocks with no `[[^:…:]]` marker, which never ask.
+  struct NoTypes;
+  impl Typer for NoTypes {
+    fn expr_types(&self, _: &str, _: bool) -> Result<Vec<ExprType>> {
+      panic!("a block with no type marker asked for types")
+    }
+  }
+
+  /// Types by expression text: every occurrence of each text in the program
+  /// is reported with its type, the way the driver reports every expression.
+  struct Fixed(&'static [(&'static str, &'static str)]);
+  impl Typer for Fixed {
+    fn expr_types(&self, program: &str, _: bool) -> Result<Vec<ExprType>> {
+      let mut out = Vec::new();
+      for (text, ty) in self.0 {
+        for (start, _) in program.match_indices(text) {
+          out.push(ExprType {
+            start,
+            end: start + text.len(),
+            ty: ty.to_string(),
+          });
+        }
+      }
+      Ok(out)
+    }
+  }
+
+  fn typed(md: &str, types: &'static [(&'static str, &'static str)]) -> String {
+    let (reps, _) = replacements(md, 1, &Fixed(types)).unwrap();
+    reps.into_iter().next().unwrap().1
+  }
+
+  #[test]
+  fn type_markers_carry_the_compilers_type() {
+    let html = typed("```origins\nlet x = [[^:*[[^:b:]]:]] + 1;\n```\n", &[
+      ("*b", "i32"),
+      ("b", "MyBox<i32>"),
+    ]);
+    assert!(
+      html.contains(
+        r#"<span class="ty" data-type="i32">*<span class="ty" data-type="MyBox&lt;i32&gt;">b</span></span>"#
+      ),
+      "{html}"
+    );
+  }
+
+  #[test]
+  fn type_markers_are_found_past_hidden_lines_and_notation() {
+    // The hidden line and the `'!a`, which compiles as the shorter `'_`, both
+    // move the expression in the program away from where it is on the slide.
+    let html = typed(
+      "```origins\n# let v = vec![1];\nlet r: &'!a Vec<i32> = [[^:&v:]];\n```\n",
+      &[("&v", "&Vec<i32>")],
+    );
+    assert!(
+      html.contains(r#"<span class="ty" data-type="&amp;Vec&lt;i32&gt;">"#),
+      "{html}"
+    );
+  }
+
+  #[test]
+  fn type_markers_are_erased_from_the_program() {
+    let md = "```origins\nfn main() { let x = [[^:1:]]; }\n```\n";
+    let (_, programs) = replacements(md, 1, &Fixed(&[("1", "i32")])).unwrap();
+    assert_eq!(programs[0].code, "fn main() { let x = 1; }");
+  }
+
+  #[test]
+  fn a_type_marker_needs_a_compiled_block() {
+    let md = "```origins,notation\nfn f() -> [[^:T:]];\n```\n";
+    let err = format!("{:#}", replacements(md, 1, &Fixed(&[])).unwrap_err());
+    assert!(err.contains("`notation` block is not compiled"), "{err}");
+  }
+
+  #[test]
+  fn a_type_marker_must_cover_an_expression() {
+    let md = "```origins\nlet y = [[^:b.deref:]]();\n```\n";
+    let err = format!(
+      "{:#}",
+      replacements(md, 1, &Fixed(&[("b.deref()", "&i32")])).unwrap_err()
+    );
+    assert!(err.contains("`b.deref` is not an expression"), "{err}");
+  }
 
   /// The single rendered block in `md`.
   fn one(md: &str) -> String {
-    let (reps, _) = replacements(md, 1).unwrap();
+    let (reps, _) = replacements(md, 1, &NoTypes).unwrap();
     assert_eq!(reps.len(), 1, "{reps:?}");
     reps.into_iter().next().unwrap().1
   }
 
   /// The programs `md`'s blocks would be checked as.
   fn programs(md: &str) -> Vec<Program> {
-    replacements(md, 1).unwrap().1
+    replacements(md, 1, &NoTypes).unwrap().1
   }
 
   #[test]
@@ -953,7 +1333,7 @@ mod test {
   #[test]
   fn replaces_only_the_fence_and_finds_every_block() {
     let md = "before\n\n```origins\nlet a = 1;\n```\n\nbetween\n\n```origins\nfn f<'?a>() {}\n```\n\nafter\n";
-    let (reps, _) = replacements(md, 1).unwrap();
+    let (reps, _) = replacements(md, 1, &NoTypes).unwrap();
     assert_eq!(reps.len(), 2);
     assert_eq!(&md[reps[0].0.clone()], "```origins\nlet a = 1;\n```");
     assert_eq!(&md[reps[1].0.clone()], "```origins\nfn f<'?a>() {}\n```");
@@ -961,7 +1341,7 @@ mod test {
 
   #[test]
   fn names_the_line_in_the_file_rather_than_in_the_body() {
-    let err = replacements("```origins\nlet a = [[a:1;\n```\n", 4)
+    let err = replacements("```origins\nlet a = [[a:1;\n```\n", 4, &NoTypes)
       .unwrap_err()
       .to_string();
     assert!(err.contains("at line 4"), "{err}");
@@ -979,7 +1359,7 @@ mod test {
     // A deck documenting the notation writes an ```origins block inside a
     // longer fence; only real blocks are rendered.
     let md = "````markdown\n```origins\nlet a = [[a:1:]];\n```\n````\n\n```origins\nlet b = 2;\n```\n";
-    let (reps, _) = replacements(md, 1).unwrap();
+    let (reps, _) = replacements(md, 1, &NoTypes).unwrap();
     assert_eq!(reps.len(), 1, "{reps:?}");
     assert_eq!(&md[reps[0].0.clone()], "```origins\nlet b = 2;\n```");
   }
@@ -1060,7 +1440,7 @@ mod test {
     for spec in ["notation,run", "notation,shouldFail"] {
       let md = format!("```origins,{spec}\nfn f() {{}}\n```\n");
       // `{:#}` for the whole chain: the outer layer is only the line number.
-      let err = format!("{:#}", replacements(&md, 1).unwrap_err());
+      let err = format!("{:#}", replacements(&md, 1, &NoTypes).unwrap_err());
       assert!(err.contains("not a program"), "{spec}: {err}");
     }
   }
@@ -1111,31 +1491,152 @@ mod test {
 
   #[test]
   fn ignores_other_fences() {
-    assert!(replacements("```rust\nlet a = 1;\n```\n", 1)
+    assert!(replacements("```rust\nlet a = 1;\n```\n", 1, &NoTypes)
       .unwrap()
       .0
       .is_empty());
-    assert!(
-      replacements("```aquascope,permissions\nfn main() {}\n```\n", 1)
-        .unwrap()
-        .0
-        .is_empty()
-    );
+    assert!(replacements(
+      "```aquascope,permissions\nfn main() {}\n```\n",
+      1,
+      &NoTypes
+    )
+    .unwrap()
+    .0
+    .is_empty());
   }
 
   #[test]
   fn rejects_a_bad_specifier_and_an_unclosed_marker() {
-    assert!(replacements("```origins\nlet a = [[a:1;\n```\n", 1).is_err());
-    assert!(replacements("```origins\nlet a = 1;\n", 1).is_err());
+    assert!(
+      replacements("```origins\nlet a = [[a:1;\n```\n", 1, &NoTypes).is_err()
+    );
+    assert!(replacements("```origins\nlet a = 1;\n", 1, &NoTypes).is_err());
     // The notation modes are gone; only block metadata remains.
     // `{:#}` for the whole chain: the outer layer is only the line number.
     let err = format!(
       "{:#}",
-      replacements("```origins,generic\nfn f() {}\n```\n", 1).unwrap_err()
+      replacements("```origins,generic\nfn f() {}\n```\n", 1, &NoTypes)
+        .unwrap_err()
     );
     assert!(
       err.contains("unknown ```origins specifier `generic`"),
       "{err}"
     );
+  }
+
+  /// The `<pre>`'s contents, with the highlighting spans taken out so a test
+  /// can read the code and the markers it cares about.
+  fn pre(html: &str) -> String {
+    let body = html.split("<pre class=\"code hljs\">").nth(1).unwrap();
+    let body = body.split("</pre>").next().unwrap();
+    let mut out = String::new();
+    let mut rest = body;
+    while let Some(at) = rest.find("<span class=\"hljs-") {
+      out.push_str(&rest[.. at]);
+      let after = &rest[at ..];
+      rest = &after[after.find('>').unwrap() + 1 ..];
+      // Token spans hold no markup, so the next close is their own.
+      let close = rest.find("</span>").unwrap();
+      out.push_str(&rest[.. close]);
+      rest = &rest[close + "</span>".len() ..];
+    }
+    out.push_str(rest);
+    out
+  }
+
+  fn err(md: &str) -> String {
+    format!("{:#}", replacements(md, 1, &NoTypes).unwrap_err())
+  }
+
+  #[test]
+  fn a_step_line_keeps_its_indentation() {
+    let html = one(
+      "```origins\nfn main() {\n    let v = 1;\n    #1 let r = &v;\n}\n```\n",
+    );
+    assert!(
+      pre(&html).contains(
+        "    <span class=\"fragment\" data-fragment-index=\"1\">let r = &amp;v;</span>\n"
+      ),
+      "{html}"
+    );
+  }
+
+  #[test]
+  fn a_step_line_at_the_top_level_is_not_indented() {
+    let html = one("```origins\n#2 struct S;\n```\n");
+    assert!(
+      pre(&html).starts_with(
+        "<span class=\"fragment\" data-fragment-index=\"2\">struct S;</span>"
+      ),
+      "{html}"
+    );
+  }
+
+  #[test]
+  fn a_step_is_compiled_and_run_as_ordinary_code() {
+    let md = "```origins,run\nfn main() {\n    #1 let x = 1;\n    [[+2:\n    let y = x;\n    :]]\n}\n```\n";
+    let code = &programs(md)[0].code;
+    assert_eq!(code, "fn main() {\n    let x = 1;\n    let y = x;\n}");
+    assert!(
+      one(md).contains(&attribute(code)),
+      "Run gets the full program"
+    );
+  }
+
+  #[test]
+  fn marker_lines_fold_into_the_lines_they_wrap() {
+    let html =
+      one("```origins\n[[+2:\nfn f() {\n    g();\n}\n:]]\nfn g() {}\n```\n");
+    let pre = pre(&html);
+    assert!(
+      pre.starts_with("<span class=\"fragment\" data-fragment-index=\"2\">fn f() {\n    g();\n}</span>\nfn g() {}"),
+      "{pre}"
+    );
+  }
+
+  #[test]
+  fn marker_lines_fold_for_origin_boxes_too() {
+    let html = one(
+      "```origins\nfn main() {\n    [[a:\n    let v = 1;\n    :]]\n}\n```\n",
+    );
+    let pre = pre(&html);
+    assert!(
+      pre
+        .contains("\n    <span class=\"oframe origin-a\">let v = 1;</span>\n}"),
+      "{pre}"
+    );
+  }
+
+  #[test]
+  fn an_inline_step_reveals_part_of_a_line() {
+    let html = one(
+      "```origins,notation\nfn f<[[+1:'?a:]]>(x: &[[+1:'?a :]]str);\n```\n",
+    );
+    assert!(
+      html.contains("<span class=\"fragment\" data-fragment-index=\"1\"><span class=\"oname\">'a</span></span>"),
+      "{html}"
+    );
+  }
+
+  #[test]
+  fn an_escaped_hash_digit_is_not_a_step() {
+    let html = one("```origins,notation\n##1 x\n```\n");
+    assert!(!html.contains("fragment"), "{html}");
+    assert!(pre(&html).starts_with("#1 x"), "{html}");
+  }
+
+  #[test]
+  fn rejects_steps_that_could_not_show() {
+    assert!(err("```origins\n#0 let a = 1;\n```\n").contains("count from 1"));
+    assert!(err("```origins\n# #1 fn f() {}\n```\n").contains("hidden line"));
+    assert!(
+      err("```origins\n# let a = [[+1:1:]];\n```\n").contains("hidden line")
+    );
+    assert!(
+      err("```origins\n[[+2:\nfn f() {\n    #1 g();\n}\n:]]\n```\n")
+        .contains("inside step 2")
+    );
+    assert!(err("```origins\n#1 let a = [[a:vec![\n1]:]];\n```\n")
+      .contains("does not also"));
   }
 }

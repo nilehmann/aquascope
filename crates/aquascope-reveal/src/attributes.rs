@@ -69,7 +69,8 @@ fn tags(html: &str) -> Vec<Tag<'_>> {
     let name = &html[name_at .. name_at + name_len];
 
     if !name.is_empty() {
-      let self_closing = html[start .. end].trim_end_matches('>').ends_with('/');
+      let self_closing =
+        html[start .. end].trim_end_matches('>').ends_with('/');
       let kind = if closing {
         Kind::Close
       } else if self_closing || VOID.contains(&name) {
@@ -77,7 +78,12 @@ fn tags(html: &str) -> Vec<Tag<'_>> {
       } else {
         Kind::Open
       };
-      out.push(Tag { name, start, end, kind });
+      out.push(Tag {
+        name,
+        start,
+        end,
+        kind,
+      });
     }
     i = end;
   }
@@ -224,14 +230,17 @@ pub fn apply(html: &str) -> (String, Vec<(String, String)>) {
         .and_then(|close| paired.get(&close).copied())
     } else {
       let before = html[.. start].trim_end();
-      all.iter().position(|t| t.end == before.len()).and_then(|j| {
-        match all[j].kind {
-          Kind::Close => paired.get(&j).copied(),
-          // An image or other void element is its own target.
-          Kind::Void => Some(j),
-          Kind::Open => None,
-        }
-      })
+      all
+        .iter()
+        .position(|t| t.end == before.len())
+        .and_then(|j| {
+          match all[j].kind {
+            Kind::Close => paired.get(&j).copied(),
+            // An image or other void element is its own target.
+            Kind::Void => Some(j),
+            Kind::Open => None,
+          }
+        })
     };
 
     if let Some(t) = target {
@@ -280,8 +289,7 @@ mod test {
     let (html, slide) =
       apply("<ul>\n<li>one <!-- .element: class=\"fragment\" --></li>\n</ul>");
     assert_eq!(
-      html,
-      "<ul>\n<li class=\"fragment\">one </li>\n</ul>",
+      html, "<ul>\n<li class=\"fragment\">one </li>\n</ul>",
       "list item should carry the class"
     );
     assert!(slide.is_empty());
@@ -314,7 +322,10 @@ mod test {
       "<ul>\n<li>a<ul><li>b</li></ul></li>\n</ul>\n<!-- .element: class=\"f\" data-fragment-index=\"2\" -->",
     );
     // The outer list is the preceding sibling, not the inner one.
-    assert!(html.starts_with("<ul class=\"f\" data-fragment-index=\"2\">"), "{html}");
+    assert!(
+      html.starts_with("<ul class=\"f\" data-fragment-index=\"2\">"),
+      "{html}"
+    );
   }
 
   #[test]
@@ -331,7 +342,10 @@ mod test {
   fn targets_a_void_element_as_a_sibling() {
     let (html, _) =
       apply("<img src=\"a.svg\" />\n<!-- .element: class=\"fragment\" -->");
-    assert!(html.starts_with("<img src=\"a.svg\" class=\"fragment\" />"), "{html}");
+    assert!(
+      html.starts_with("<img src=\"a.svg\" class=\"fragment\" />"),
+      "{html}"
+    );
   }
 
   #[test]

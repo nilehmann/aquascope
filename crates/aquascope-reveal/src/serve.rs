@@ -71,7 +71,13 @@ fn handle(mut stream: TcpStream, root: &Path) -> std::io::Result<()> {
   }
 
   if method != "GET" && method != "HEAD" {
-    return respond(&mut stream, 405, "text/plain", b"method not allowed", true);
+    return respond(
+      &mut stream,
+      405,
+      "text/plain",
+      b"method not allowed",
+      true,
+    );
   }
   let head_only = method == "HEAD";
 
@@ -189,7 +195,11 @@ fn percent_decode(s: &str) -> String {
 }
 
 fn content_type(path: &Path) -> &'static str {
-  match path.extension().and_then(|e| e.to_str()).unwrap_or_default() {
+  match path
+    .extension()
+    .and_then(|e| e.to_str())
+    .unwrap_or_default()
+  {
     "html" => "text/html; charset=utf-8",
     "css" => "text/css; charset=utf-8",
     "js" | "mjs" => "text/javascript; charset=utf-8",

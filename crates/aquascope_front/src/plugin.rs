@@ -47,6 +47,10 @@ enum AquascopeCommand {
 
   Interpreter,
 
+  /// The type of every expression in the program, for aquascope-reveal's
+  /// type-on-hover markers.
+  Types,
+
   Preload,
   RustcVersion,
 }
@@ -138,6 +142,11 @@ impl RustcPlugin for AquascopePlugin {
             .unwrap()
             .map_err(|_| AquascopeError::BuildError { range: None }),
         )
+      }
+      Types => {
+        let mut callbacks = aquascope::types::TypesCallbacks::default();
+        let _ = run_with_callbacks(&compiler_args, &mut callbacks);
+        postprocess(callbacks.result)
       }
       _ => unreachable!(),
     }

@@ -361,6 +361,50 @@
   font-weight: 700;
 }
 
+/* Types on hover: `[[^:EXPR:]]` wraps EXPR in a `.ty` span whose `data-type`
+ * is the type rustc gave it, shown under it while the pointer is over it and
+ * sized for the back of the room. The spans nest, so only the innermost one
+ * under the pointer answers: hovering `b` inside `b.deref()` names `b`, not
+ * the call.
+ *
+ * The tooltip hangs below the code, past the block's edge, so a block with
+ * one lets it out: the `pre` would scroll it away and the wrapper clip it. A
+ * container of the deck's own that clips -- a card with rounded corners, say
+ * -- needs the same `overflow: visible` in the deck's stylesheet.
+ *
+ * The colours are the deck's to change: `--ty-hover` behind the expression,
+ * `--ty-tip-bg` and `--ty-tip-fg` for the tooltip. */
+.reveal .origins-block:has(.ty),
+.reveal pre.code:has(.ty) {
+  overflow: visible;
+}
+
+.reveal .ty {
+  position: relative;
+  border-radius: 0.1em;
+  cursor: help;
+}
+
+.reveal .ty:hover:not(:has(.ty:hover)) {
+  background: var(--ty-hover, hsl(197, 60%, 86%));
+}
+
+.reveal .ty:hover:not(:has(.ty:hover))::after {
+  content: attr(data-type);
+  position: absolute;
+  top: calc(100% + 0.3em);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  padding: 0.1em 0.5em;
+  white-space: nowrap;
+  font-size: 1.25em;
+  color: var(--ty-tip-fg, white);
+  background: var(--ty-tip-bg, hsl(197, 40%, 25%));
+  border-radius: 0.2em;
+  pointer-events: none;
+}
+
 /* Hand-annotated code: a `pre` with no `code` child (see above). Reveal's theme
  * styles `pre` as a shadowed card at its own font size, all of which has to go
  * so this matches the deck's other code. The `hljs` class on the same element

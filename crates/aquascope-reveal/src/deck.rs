@@ -206,7 +206,8 @@ mod test {
 
   #[test]
   fn passes_through_raw_html() {
-    let deck = Deck::parse("<div class=\"aquascope-embed\" data-x=\"&quot;\"></div>\n");
+    let deck =
+      Deck::parse("<div class=\"aquascope-embed\" data-x=\"&quot;\"></div>\n");
     assert!(deck.to_html().contains("data-x=\"&quot;\""));
   }
 }

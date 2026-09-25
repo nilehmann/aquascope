@@ -66,7 +66,9 @@ pub fn evaluate(body: &[u8]) -> Vec<u8> {
 
   // `result` is the only field the editor reads. serde_json does the quoting,
   // which is the part worth not hand-rolling.
-  serde_json::json!({ "result": result }).to_string().into_bytes()
+  serde_json::json!({ "result": result })
+    .to_string()
+    .into_bytes()
 }
 
 /// Whether `code` has a `main` at the top level, which decides whether it is
@@ -120,7 +122,11 @@ pub fn check(code: &str) -> Result<(), String> {
     if output.status.success() {
       Ok(())
     } else {
-      Err(strip_ansi(&String::from_utf8_lossy(&output.stderr)).trim().to_string())
+      Err(
+        strip_ansi(&String::from_utf8_lossy(&output.stderr))
+          .trim()
+          .to_string(),
+      )
     }
   })();
 
@@ -131,7 +137,9 @@ pub fn check(code: &str) -> Result<(), String> {
 fn compile_and_run(request: &Request) -> String {
   let dir = match scratch_dir() {
     Ok(dir) => dir,
-    Err(e) => return plain(&format!("Could not create a build directory: {e}")),
+    Err(e) => {
+      return plain(&format!("Could not create a build directory: {e}"))
+    }
   };
 
   let result = build_in(&dir, request);
@@ -156,7 +164,10 @@ fn build_in(dir: &Path, request: &Request) -> String {
     .arg("--edition")
     .arg(edition(request.edition.as_deref()))
     .arg("-C")
-    .arg(format!("opt-level={}", opt_level(request.optimize.as_deref())))
+    .arg(format!(
+      "opt-level={}",
+      opt_level(request.optimize.as_deref())
+    ))
     // rustc suppresses colour when stderr is not a terminal, which a pipe
     // never is. Ask for it explicitly and turn it into spans below.
     .arg("--color=always")
@@ -274,10 +285,8 @@ fn opt_level(requested: Option<&str>) -> &str {
 fn scratch_dir() -> std::io::Result<PathBuf> {
   static COUNTER: AtomicU64 = AtomicU64::new(0);
   let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-  let dir = env::temp_dir().join(format!(
-    "aquascope-reveal-run-{}-{n}",
-    std::process::id()
-  ));
+  let dir = env::temp_dir()
+    .join(format!("aquascope-reveal-run-{}-{n}", std::process::id()));
   fs::create_dir_all(&dir)?;
   Ok(dir)
 }
@@ -343,7 +352,8 @@ mod test {
 
   #[test]
   fn reports_compile_errors_as_output() {
-    let body = r#"{"code":"fn main() { let x: i32 = \"s\"; }","edition":"2021"}"#;
+    let body =
+      r#"{"code":"fn main() { let x: i32 = \"s\"; }","edition":"2021"}"#;
     let result = result_of(body);
     assert!(result.contains("mismatched types"), "{result}");
     // rustc's colours arrive as themeable variables, not literal escapes.
@@ -357,7 +367,10 @@ mod test {
     // rustc's own output is trusted with colour.
     let body = r#"{"code":"fn main() { print!(\"\\x1b[31m<b>hi</b>\"); }","edition":"2021"}"#;
     let result = result_of(body);
-    assert!(result.ends_with("\x1b[31m&lt;b&gt;hi&lt;/b&gt;"), "{result}");
+    assert!(
+      result.ends_with("\x1b[31m&lt;b&gt;hi&lt;/b&gt;"),
+      "{result}"
+    );
   }
 
   #[test]

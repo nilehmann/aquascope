@@ -79,3 +79,4 @@ pub mod errors;
 pub mod interpreter;
 #[cfg(feature = "testing")]
 pub mod test_utils;
+pub mod types;

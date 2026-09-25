@@ -170,7 +170,8 @@ mod test {
   fn ignores_specifiers_inside_a_block() {
     // A closing fence, and anything that looks like one inside code, must not
     // be read as an opening fence.
-    let w = check("```aquascope,interpreter\nlet s = \"```aquascope,nope\";\n```\n");
+    let w =
+      check("```aquascope,interpreter\nlet s = \"```aquascope,nope\";\n```\n");
     assert!(w.is_empty(), "{w:?}");
   }
 }
