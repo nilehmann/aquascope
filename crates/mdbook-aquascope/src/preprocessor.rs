@@ -16,7 +16,19 @@ use rayon::prelude::*;
 use tempfile::tempdir;
 use wait_timeout::ChildExt;
 
-use crate::{block::AquascopeBlock, cache::Cache};
+use crate::{
+  block::AquascopeBlock, cache::Cache, permissions::Replacement,
+};
+
+/// An ```aquascope block that could not be rendered.
+pub struct BlockFailure {
+  /// Byte range of the whole fence in the content passed in.
+  pub range: std::ops::Range<usize>,
+  /// The program, with annotations taken out.
+  pub code: String,
+  pub should_fail: bool,
+  pub error: anyhow::Error,
+}
 
 pub struct AquascopePreprocessor {
   miri_sysroot: PathBuf,
@@ -223,6 +235,44 @@ impl AquascopePreprocessor {
       })
       .chain(crate::permissions::parse_perms(content).par_bridge())
       .collect()
+  }
+
+  /// Like [`Self::replacements`], but a block Aquascope cannot render is
+  /// returned as a [`BlockFailure`] instead of ending the whole pass, so a
+  /// caller can report every broken block at once. The outer error is for
+  /// failures that are not about any one block.
+  pub fn replacements_with_failures(
+    &self,
+    content: &str,
+  ) -> Result<(Vec<Replacement>, Vec<BlockFailure>)> {
+    let results: Vec<_> = AquascopeBlock::parse_all(content)
+      .into_par_iter()
+      .map(|(range, block)| {
+        let should_fail = block.config.iter().any(|(k, _)| k == "shouldFail");
+        let code = block.code.clone();
+        self.process_code(block).map(|html| (range.clone(), html)).map_err(
+          |error| BlockFailure {
+            range,
+            code,
+            should_fail,
+            error,
+          },
+        )
+      })
+      .collect();
+
+    let mut edits = Vec::new();
+    let mut failures = Vec::new();
+    for result in results {
+      match result {
+        Ok(edit) => edits.push(edit),
+        Err(failure) => failures.push(failure),
+      }
+    }
+    for perm in crate::permissions::parse_perms(content) {
+      edits.push(perm?);
+    }
+    Ok((edits, failures))
   }
 
   pub fn save_cache(&mut self) {

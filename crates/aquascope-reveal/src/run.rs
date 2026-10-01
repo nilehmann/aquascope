@@ -80,9 +80,11 @@ fn defines_main(code: &str) -> bool {
   })
 }
 
-/// Compiles `code` without running or linking it, for the build-time check on
-/// ```origins blocks. `Ok(())` means it compiled; the error is rustc's own
-/// output, uncoloured, since a build log is not a slide.
+/// Compiles `code` without running or linking it, for the build-time checks on
+/// ```origins blocks and on ```aquascope blocks Aquascope could not render.
+/// `Ok(())` means it compiled; the error is rustc's own output with its colour
+/// escapes left in, for [`ansi`] to turn into the build-error overlay and for
+/// a terminal to show as it is.
 ///
 /// `--emit=metadata` stops before codegen, which is what keeps this cheap
 /// enough to run over every block on every build without a cache.
@@ -104,7 +106,7 @@ pub fn check(code: &str) -> Result<(), String> {
       // `--emit=metadata`, so an item-only block has to be a `lib` or every
       // one of them would read as broken.
       .arg(if defines_main(code) { "bin" } else { "lib" })
-      .arg("--error-format=short")
+      .arg("--color=always")
       .arg("-A")
       // A slide shows the code that makes its point and nothing else, so
       // unused names are the rule rather than a mistake.
@@ -114,19 +116,14 @@ pub fn check(code: &str) -> Result<(), String> {
       .map_err(|e| {
         format!(
           "could not run rustc: {e}\n\
-           ```origins blocks are compiled at build time, so rustc has to be \
-           on PATH."
+           Code blocks are compiled at build time, so rustc has to be on PATH."
         )
       })?;
 
     if output.status.success() {
       Ok(())
     } else {
-      Err(
-        strip_ansi(&String::from_utf8_lossy(&output.stderr))
-          .trim()
-          .to_string(),
-      )
+      Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
     }
   })();
 
@@ -292,7 +289,7 @@ fn scratch_dir() -> std::io::Result<PathBuf> {
 }
 
 /// Text with no markup of its own, escaped for `innerHTML`.
-fn plain(s: &str) -> String {
+pub fn plain(s: &str) -> String {
   s.replace('&', "&amp;")
     .replace('<', "&lt;")
     .replace('>', "&gt;")
@@ -305,7 +302,7 @@ fn plain(s: &str) -> String {
 /// live in `assets/aquascope-reveal.css`. Nothing here can fail in practice --
 /// the input is rustc's own output -- but falling back to the escaped text
 /// with the codes stripped beats losing the diagnostic.
-fn ansi(s: &str) -> String {
+pub fn ansi(s: &str) -> String {
   ansi_to_html::Converter::new()
     // Decides only how "reverse video" is rendered, which rustc does not use;
     // set anyway because the slides are a light background.
@@ -316,7 +313,7 @@ fn ansi(s: &str) -> String {
 }
 
 /// Last-resort removal of SGR sequences, for the fallback above.
-fn strip_ansi(s: &str) -> String {
+pub fn strip_ansi(s: &str) -> String {
   let mut out = String::with_capacity(s.len());
   let mut chars = s.chars();
   while let Some(c) = chars.next() {

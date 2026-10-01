@@ -401,9 +401,20 @@ back to the slide *and* fragment you were on. Rebuilds are fast because the
 Aquascope cache is keyed on each block's code and config -- only blocks you
 actually edited are re-analyzed.
 
-A failing build prints the error and leaves the watcher running; only the very
-first build exits non-zero. The reload script and `build-stamp.txt` are written
-only under `--watch`, so a plain build stays clean.
+A failing build prints the error, leaves the watcher running, and shows the
+error in a modal over the open page, the way a dev server's error overlay does.
+The page underneath stays on the last successful build. Every broken
+```` ```aquascope ```` and ```` ```origins ```` block is listed with its line
+in the deck and rustc's diagnostic, not just the first one; for an
+```` ```aquascope ```` block, Aquascope's raw output sits in a collapsed
+section, for failures rustc does not explain. Esc or a click outside dismisses
+the modal until the next build, and a successful build reloads the page as
+usual. If the very first build fails, a placeholder page carries the modal
+until there is a deck.
+
+The reload script, `build-stamp.txt` and `build-error.html` are written only
+under `--watch`, so a plain build stays clean. Without `--watch`, a failing
+build still prints every problem, exits non-zero, and writes nothing.
 
 Changes are detected by polling modification times rather than with inotify, to
 keep the crate free of a filesystem-notification dependency. The file list is

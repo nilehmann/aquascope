@@ -73,7 +73,10 @@ use std::{cmp::Reverse, ops::Range};
 use anyhow::{bail, Context, Result};
 use ra_ap_rustc_lexer::{tokenize, FrontmatterAllowed, LiteralKind, TokenKind};
 
-use crate::types::{self, Typer};
+use crate::{
+  overlay::Problem,
+  types::{self, Typer},
+};
 
 pub type Replacement = (Range<usize>, String);
 
@@ -996,24 +999,25 @@ pub fn replacements(
 /// to prove it: a typo on a slide is otherwise found in the lecture. The two
 /// escapes say which kind of not-compiling a block means -- `shouldFail` for a
 /// block whose error is the point, `notation` for one that is not a program.
-pub fn check(programs: &[Program]) -> Vec<String> {
+pub fn check(programs: &[Program], file: &str) -> Vec<Problem> {
   let mut problems = Vec::new();
   for p in programs {
+    let problem = |message: &str, diagnostic| Problem {
+      location: Some(format!("{file}:{}", p.line)),
+      message: message.to_string(),
+      diagnostic,
+      details: None,
+    };
     match (crate::run::check(&p.code), p.should_fail) {
       (Ok(()), false) | (Err(_), true) => {}
-      (Ok(()), true) => problems.push(format!(
-        "{}: the ```origins block is marked shouldFail but compiles",
-        p.line
+      (Ok(()), true) => problems.push(problem(
+        "the ```origins block is marked shouldFail but compiles",
+        None,
       )),
-      (Err(e), false) => problems.push(format!(
-        "{}: the ```origins block does not compile. Mark it shouldFail if \
-         that is the point of the slide, or notation if it is not a \
-         program.\n{}",
-        p.line,
-        e.lines()
-          .map(|l| format!("        {l}"))
-          .collect::<Vec<_>>()
-          .join("\n")
+      (Err(e), false) => problems.push(problem(
+        "the ```origins block does not compile. Mark it shouldFail if that \
+         is the point of the slide, or notation if it is not a program.",
+        Some(e),
       )),
     }
   }
@@ -1468,14 +1472,17 @@ mod test {
       should_fail: true,
     };
 
-    assert!(check(&[good, expected]).is_empty());
-    let problems = check(&[bad, surprise]);
+    assert!(check(&[good, expected], "d.md").is_empty());
+    let problems = check(&[bad, surprise], "d.md");
     assert_eq!(problems.len(), 2, "{problems:?}");
-    assert!(
-      problems[0].starts_with("2: ")
-        && problems[0].contains("does not compile")
-    );
-    assert!(problems[1].starts_with("4: ") && problems[1].contains("compiles"));
+    assert_eq!(problems[0].location.as_deref(), Some("d.md:2"));
+    assert!(problems[0].message.contains("does not compile"));
+    assert!(problems[0]
+      .diagnostic
+      .as_deref()
+      .is_some_and(|d| d.contains("mismatched types")));
+    assert_eq!(problems[1].location.as_deref(), Some("d.md:4"));
+    assert!(problems[1].message.contains("compiles"));
   }
 
   #[test]
@@ -1485,7 +1492,7 @@ mod test {
       line: 1,
       code: "fn helper() {}\nfn main() { let x = 1; }".into(),
       should_fail: false,
-    }]);
+    }], "d.md");
     assert!(problems.is_empty(), "{problems:?}");
   }
 

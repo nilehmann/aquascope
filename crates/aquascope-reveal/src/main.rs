@@ -19,6 +19,7 @@ mod deck;
 mod frontmatter;
 mod lint;
 mod origins;
+mod overlay;
 mod run;
 mod serve;
 mod types;
@@ -32,8 +33,6 @@ const GLUE_CSS: &[u8] = include_bytes!("../assets/aquascope-reveal.css");
 /// mdBook's highlight.js theme. CodeMirror emits `hljs-*` spans that Aquascope
 /// does not colour itself, relying on the book to supply a theme.
 const HIGHLIGHT_CSS: &[u8] = include_bytes!("../assets/highlight.css");
-/// Injected only by `--watch`.
-const LIVERELOAD_JS: &[u8] = include_bytes!("../assets/livereload.js");
 
 const CDN: &str = "https://cdn.jsdelivr.net/npm/reveal.js@5.1.0";
 
@@ -164,25 +163,43 @@ fn build(args: &Args, preprocessor: &mut AquascopePreprocessor) -> Result<()> {
   let first_body_line =
     source[.. source.len() - body.len()].lines().count() + 1;
 
-  let mut edits = preprocessor.replacements(body)?;
-  let (origin_edits, programs) =
-    origins::replacements(body, first_body_line, &*preprocessor)?;
-  edits.extend(origin_edits);
-  let content = apply(body, edits);
+  // A broken block does not stop the build at once: every one is collected,
+  // so the author sees all of them together, in the log and in the overlay.
+  let file = args.input.display().to_string();
+  let (mut edits, failures) = preprocessor.replacements_with_failures(body)?;
+  let mut problems: Vec<_> = failures
+    .into_iter()
+    .map(|f| {
+      let line = first_body_line + body[.. f.range.start].matches('\n').count();
+      aquascope_problem(f, &format!("{file}:{line}"))
+    })
+    .collect();
 
-  // Every ```origins block that claims to be code is compiled, so a typo on a
-  // slide is found here rather than in the lecture. A block whose failure is
-  // the point says `shouldFail`; one that is not a program says `notation`.
-  let problems = origins::check(&programs);
-  for problem in &problems {
-    eprintln!("error: {}:{problem}", args.input.display());
+  match origins::replacements(body, first_body_line, &*preprocessor) {
+    Ok((origin_edits, programs)) => {
+      edits.extend(origin_edits);
+      // Every ```origins block that claims to be code is compiled, so a typo
+      // on a slide is found here rather than in the lecture. A block whose
+      // failure is the point says `shouldFail`; one that is not a program
+      // says `notation`.
+      problems.extend(origins::check(&programs, &file));
+    }
+    Err(e) => problems.push(overlay::Problem::general(
+      &e.context(format!("in {file}")),
+    )),
   }
-  anyhow::ensure!(
-    problems.is_empty(),
-    "{} ```origins block(s) disagree with their fence",
-    problems.len()
-  );
+
+  // The blocks that did render are worth keeping either way: the next build
+  // then only waits on the ones being fixed.
   preprocessor.save_cache();
+
+  if !problems.is_empty() {
+    for problem in &problems {
+      problem.print();
+    }
+    return Err(overlay::Failed(problems).into());
+  }
+  let content = apply(body, edits);
 
   let slides = deck::Deck::parse(&content).to_html();
 
@@ -265,10 +282,9 @@ fn build(args: &Args, preprocessor: &mut AquascopePreprocessor) -> Result<()> {
     None => String::new(),
   };
 
-  // The stamp changes on every rebuild; livereload.js polls it and reloads.
+  // livereload.js and the stamp it polls are written by `overlay::publish`,
+  // after this build's outcome is known.
   if args.watch {
-    fs::write(aquascope_dir.join("livereload.js"), LIVERELOAD_JS)?;
-    fs::write(out.join("build-stamp.txt"), stamp())?;
     tail.push_str("  <script src=\"aquascope/livereload.js\"></script>\n");
   }
 
@@ -309,13 +325,51 @@ fn build(args: &Args, preprocessor: &mut AquascopePreprocessor) -> Result<()> {
   Ok(())
 }
 
-/// A value that changes on every rebuild. Nanosecond resolution is well past
-/// what the poll interval can distinguish, so successive builds never collide.
-fn stamp() -> String {
-  SystemTime::now()
-    .duration_since(SystemTime::UNIX_EPOCH)
-    .map(|d| d.as_nanos().to_string())
-    .unwrap_or_default()
+/// Explains an ```aquascope block Aquascope could not render.
+///
+/// Aquascope's own report says only that the build failed, with no location
+/// and no compiler message, so the block is put through rustc to recover one.
+/// Its raw output is kept as the details for when that finds nothing -- a
+/// timeout, or a crash in Aquascope itself.
+fn aquascope_problem(
+  failure: mdbook_aquascope::BlockFailure,
+  location: &str,
+) -> overlay::Problem {
+  let (message, diagnostic) =
+    match (run::check(&failure.code), failure.should_fail) {
+      (Err(e), false) => ("the ```aquascope block does not compile", Some(e)),
+      (Ok(()), true) => (
+        "Aquascope failed on this block, which is marked shouldFail but \
+         compiles",
+        None,
+      ),
+      _ => ("Aquascope failed on this block", None),
+    };
+  overlay::Problem {
+    location: Some(location.to_string()),
+    message: message.to_string(),
+    diagnostic,
+    details: Some(format!("{:#}", failure.error)),
+  }
+}
+
+/// Prints a failed build and hands its problems to the open page.
+fn report(args: &Args, result: Result<()>) -> Result<()> {
+  let general;
+  let problems = match &result {
+    Ok(()) => Vec::new(),
+    Err(e) => {
+      eprintln!("Build failed: {e:#}");
+      let problems = overlay::problems_of(e);
+      if problems.is_empty() {
+        general = overlay::Problem::general(e);
+        vec![&general]
+      } else {
+        problems
+      }
+    }
+  };
+  overlay::publish(&args.out_dir, &problems)
 }
 
 /// Every file a rebuild depends on: the deck itself, the linked assets, and
@@ -361,9 +415,14 @@ fn main() -> Result<()> {
   let args = Args::parse();
   let mut preprocessor = AquascopePreprocessor::new()?;
 
-  // Fail loudly on the first build; once watching, a bad edit should only
-  // print and leave the watcher running.
-  build(&args, &mut preprocessor)?;
+  // Without --watch a failed build is fatal. With it, even the first failure
+  // only prints and goes to the overlay, and the watcher keeps running.
+  let result = build(&args, &mut preprocessor);
+  if args.watch {
+    report(&args, result)?;
+  } else {
+    result?;
+  }
 
   if let Some(port) = args.serve {
     serve::spawn(args.out_dir.clone(), port)?;
@@ -387,8 +446,9 @@ fn main() -> Result<()> {
     }
     last = current;
 
-    if let Err(e) = build(&args, &mut preprocessor) {
-      eprintln!("Build failed: {e:#}");
+    let result = build(&args, &mut preprocessor);
+    if let Err(e) = report(&args, result) {
+      eprintln!("Could not report the build: {e:#}");
     }
   }
 }
