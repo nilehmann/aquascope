@@ -110,6 +110,7 @@ caller's is the origin the two `vec!`s live in.
 | `[[*:TEXT:]]` | a tight dashed box: what is *actually* borrowed, where the origin around it over-approximates |
 | `[[^:TEXT:]]` | no box: `TEXT` shows its type on hover (see [Types on hover](#types-on-hover)) |
 | `[[+N:TEXT:]]` | no box: `TEXT` appears on click `N` (see [Stepping through code](#stepping-through-code)) |
+| `[[=:TEXT:]]`, `[[=N:TEXT:]]` | `TEXT` in focus and the rest faded, from the start or on click `N` (see [Highlighting](#highlighting)) |
 
 The sigils are sugar: `'!a` is `[[a:'a:]]` and `'?a` is `[[?:'a:]]`. They exist
 because a deck writes far more lifetimes than frames, and a bracket around each
@@ -196,7 +197,7 @@ because the sigils say which lifetimes are notation:
 
 | in the block | in the program |
 | --- | --- |
-| `[[a:…:]]`, `[[?:…:]]`, `[[*:…:]]`, `[[^:…:]]` | erased |
+| `[[a:…:]]`, `[[?:…:]]`, `[[*:…:]]`, `[[^:…:]]`, `[[+N:…:]]`, `[[=…:]]` | erased |
 | `'!a` | `'_` -- a concrete origin is the lifetime inference would pick, and is not nameable where the notation writes it |
 | `'?a` | `'a` |
 | `'a` | `'a` |
@@ -296,6 +297,88 @@ The build fails on a step that could not show: `#0`, a step on a hidden line,
 a step inside another with a lower number, and a `#N` line that opens a marker
 it does not close.
 
+### Highlighting
+
+`[[=:…:]]` puts part of a block in focus: the rest of the block fades, and the
+highlighted code keeps its full strength on a soft tint. A highlight over
+several lines is one tinted shape behind all of them, drawn the way an
+editor draws a selection: the lines share a left and a right edge, except
+that a highlight starting partway through a line starts there and one ending
+partway through a line ends there. Highlighting the closure in
+`spawn(|| { … });` leaves `spawn(` and `);` outside it, and a highlight over
+whole lines is a plain rectangle. Indentation never counts as code.
+`[[=N:…:]]` does the same from click `N`, with the code on the slide from the
+start -- the click lights it, it does not reveal it.
+
+`````markdown
+```origins,shouldFail
+fn main() {
+    let mut v = [[=1:vec![1, 2, 3]:]];
+    let r = [[=2:&v:]];
+    [[=3:
+    v.push(4);
+    println!("{r:?}");
+    :]]
+}
+```
+`````
+
+Timed highlights are a walk-through: the focus moves to each step's
+highlights in turn, all the ones sharing a step lit together, and a
+highlight stays lit through clicks that belong to other things on the slide
+until the next one takes over. One click after the last, the block returns to
+full strength; the block adds that click itself if nothing else on the slide
+has it. A `[[=:…:]]` highlight is lit whenever no timed one is -- before the
+first, and again after the last.
+
+It is a frame like the others: it nests with them, a line holding only the
+marker folds into its neighbour, and it is erased from the program that is
+compiled. A box over exactly the same code is drawn inside it, so the box
+is lifted out of the fade with its code. `N` is the same reveal step number
+as `#N`, and a highlight inside a `[[+M:…:]]` step must be lit on step `M` or
+later, since its code is not shown before then. `[[=0:` and a highlight on a
+hidden line fail the build.
+
+#### Callouts
+
+A highlight can carry a sentence explaining it. The text is written after
+the fence, not inside the marker, as one `[=N]: text` line per step:
+
+`````markdown
+```origins
+fn main() {
+    [[=2:thread::spawn:]]([[=3:|| {
+        println!("hi from the spawned thread!");
+    }:]]);
+}
+```
+[=2]: `thread::spawn` starts a new OS thread and returns a `JoinHandle` right away.
+[=3]: The closure is the thread's **body**. It runs concurrently with `main`.
+`````
+
+The note for step `N` is shown in a strip under the code while step `N`'s
+highlights are lit, and `[=]: text` explains the `[[=:…:]]` ones lit from
+the start. The text is inline markdown. The lines have the shape of
+markdown's link reference definitions, so a plain markdown preview hides
+them.
+
+The notes start on the line after the closing fence, may be separated by
+blank lines, and end at the first line that is neither. A note that
+explains nothing fails the build: one for a step with no `[[=N:`
+highlight, `[=]` in a block with no `[[=:` highlight, or a step defined
+twice. A highlight without a note is fine.
+
+The strip never moves the slide. Every note is in it from the start,
+stacked in one place, so it is as tall as its longest note before any of
+them shows, and only which one is visible changes from step to step. Its
+background, `--ohl-notes-bg`, and its rule fade in with the first note.
+
+Nothing moves as the focus does: the tint and the fade are both laid over
+the code rather than being part of it. The tint is an `svg.ohl-box` that
+aquascope-reveal.js shapes to the highlighted code each time it is lit and
+when the window resizes. Their look is the deck's to change: `--ohl` is the
+tint colour, `--ohl-fade` how strongly the rest fades (`1` hides it).
+
 ### Styling
 
 A block is rendered as
@@ -326,8 +409,8 @@ The colours are meant to be overridden: redefine `--o` and `--o-pale` on a
 
 A rendered block carries `oframe origin-<letter>`
 for a box around code, `oname origin-<letter>` for a boxed lifetime, the same
-two without the `origin-` class for the neutral forms, and `oexact` for the
-dashed box; everything else is highlight.css's own `hljs-*` classes, so a
+two without the `origin-` class for the neutral forms, `oexact` for the
+dashed box, and `ohl` for a highlight, with `on` while it is lit; everything else is highlight.css's own `hljs-*` classes, so a
 rendered block is indistinguishable from the Aquascope-highlighted ones on
 other slides. A boxed lifetime carries no `hljs-symbol` of its own, because
 `.oname` owns its colour and weight.

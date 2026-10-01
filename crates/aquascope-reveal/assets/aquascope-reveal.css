@@ -405,6 +405,153 @@
   pointer-events: none;
 }
 
+/* Highlights: `[[=:CODE:]]` and `[[=N:CODE:]]` wrap CODE in an `.ohl` span,
+ * and while one is lit (`.on`) the rest of the block fades and a soft tint
+ * fills the space behind the lit code. `[[=:` spans are lit from the start; `[[=N:` ones are
+ * lit on step N, and aquascope-reveal.js moves `.on` as the steps go by.
+ *
+ * The tint is not a background on the span. An inline span's background
+ * breaks at every line, giving a highlight over three lines three strips, the
+ * later ones starting at the margin with the indentation inside them. So
+ * aquascope-reveal.js measures the highlighted text instead -- leaving out the
+ * indentation -- and fills one `.ohl-box` shape behind all of it.
+ *
+ * Nothing here changes the layout -- the tint and the fade are both layers
+ * over the code -- so the code does not move as the focus does. Bottom to
+ * top: the fade, a pseudo-element in the code's background colour; the tint,
+ * above the fade so it is not faded itself; and the lit span, above both,
+ * which lifts its text and any box inside it clear of them.
+ *
+ * The deck's to change: `--ohl` is the tint, `--ohl-fade` how much of the
+ * code background is laid over the rest (1 hides it). A pale highlighter
+ * yellow by default: the most familiar mark for "look here", light enough to
+ * sit behind syntax colours, and clear of the origins' red, teal and
+ * magenta. */
+.reveal .origins-block:has(.ohl) pre.code {
+  position: relative;
+}
+
+.reveal .origins-block:has(.ohl) pre.code::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: var(--code-bg);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.reveal .origins-block:has(.ohl.on) pre.code::after {
+  opacity: var(--ohl-fade, 0.6);
+}
+
+/* reveal gives its fragments `will-change: opacity`, which makes each step a
+ * stacking context of its own -- and a lit span inside one could then rise
+ * only within the step, staying under the layer. A shown step is opaque, so
+ * dropping the hint changes nothing else. */
+.reveal .origins-block:has(.ohl) .fragment {
+  will-change: auto;
+}
+
+.reveal .ohl.on {
+  position: relative;
+  z-index: 3;
+}
+
+/* Callouts: the `[=N]: text` lines after a fence, shown in a strip under the
+ * code while step N's highlights are lit.
+ *
+ * Every note is in the strip from the start, stacked in one grid cell, so the
+ * strip is as tall as its tallest note before any of them shows: showing one,
+ * switching to the next and hiding the last never move what follows the
+ * block. Only visibility changes, and the strip's own background and rule
+ * fade in with the first note rather than appearing as an empty bar.
+ *
+ * aquascope-reveal.js moves `.on` among the notes as it does among the
+ * highlights. The swatch beside the text is the highlight's own `--ohl`. */
+.reveal .ohl-notes {
+  display: grid;
+  margin: 0;
+  padding: 0.45em 0.7em;
+  border-top: 2px dashed transparent;
+  background: transparent;
+  font-size: var(--aq-code-font-size);
+  line-height: 1.4;
+  text-align: left;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.reveal .ohl-notes:has(.ohl-note.on) {
+  border-top-color: var(--theme-popup-border);
+  background: var(--ohl-notes-bg, #fffdf3);
+}
+
+/* A block, not a flex row: the note is running text, and a flex container
+ * would make each `code` and `strong` in it an item of its own, with the gap
+ * around it. The swatch hangs in the padding instead. */
+.reveal .ohl-note {
+  grid-area: 1 / 1;
+  position: relative;
+  padding-left: 1.15em;
+  transition: opacity 0.2s ease, visibility 0.2s;
+}
+
+/* A step's note is a reveal fragment, and reveal shows every fragment up to
+ * the current step with `.reveal .fragment.visible` -- which would leave the
+ * notes for earlier steps showing beneath the current one. Only `.on`
+ * decides, so this outranks that rule. */
+.reveal .ohl-notes .ohl-note:not(.on) {
+  visibility: hidden;
+  opacity: 0;
+}
+
+.reveal .ohl-note::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.2em;
+  width: 0.55em;
+  height: 1em;
+  border-radius: 0.12em;
+  background: var(--ohl, #fff3c4);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+
+/* A type tooltip goes over everything a highlight puts in its way. A lit
+ * highlight is a stacking context of its own, so a tooltip inside one can
+ * rise only within it, and the next lit highlight down -- on the same layer,
+ * and later in the page -- would paint over the part hanging below. So the
+ * highlight holding the hovered expression comes above the others, and the
+ * expression itself above any highlight, which also lifts it clear of the
+ * fade while the pointer is on it. */
+.reveal .ohl.on:has(.ty:hover) {
+  z-index: 4;
+}
+
+.reveal .origins-block:has(.ohl) .ty:hover:not(:has(.ty:hover)) {
+  z-index: 5;
+}
+
+/* An svg that aquascope-reveal.js shapes to the code it fills: one shape,
+ * notched where the highlight starts or ends partway through a line. */
+.reveal .ohl-box {
+  position: absolute;
+  z-index: 2;
+  overflow: visible;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.reveal .ohl-box path {
+  fill: var(--ohl, #fff3c4);
+}
+
+.reveal .ohl-box.on {
+  opacity: 1;
+}
+
 /* Hand-annotated code: a `pre` with no `code` child (see above). Reveal's theme
  * styles `pre` as a shadowed card at its own font size, all of which has to go
  * so this matches the deck's other code. The `hljs` class on the same element

@@ -55,6 +55,10 @@
 //! `[[+N:TEXT:]]` is not a box either: it reveals `TEXT` on click `N`, as a
 //! reveal fragment. `#N ` in front of a line is the same for the whole line.
 //!
+//! `[[=:TEXT:]]` puts `TEXT` in focus, fading the rest of the block, and
+//! `[[=N:TEXT:]]` does so from click `N`. The focus moves from step to step,
+//! and the block returns to full strength one click after the last.
+//!
 //! `[[^:EXPR:]]` is not a box: it makes `EXPR` show its type on hover. The
 //! type is not written in the block but asked of the compiler, by the
 //! `types` module, so it cannot be wrong, and a marker that is not exactly
@@ -160,6 +164,25 @@ struct Span {
   data_type: Option<String>,
   /// For a `[[+N:…:]]` marker, the step it is revealed on.
   step: Option<u32>,
+  /// For a `[[=N:…:]]` marker, the step it is lit on. A `[[=:…:]]` marker is
+  /// lit from the start and has none.
+  focus: Option<u32>,
+}
+
+impl Span {
+  /// Which of two markers over the same code is emitted outside the other: a
+  /// step outside everything, so a hidden step hides its boxes too; then a
+  /// highlight, so a box it covers is lifted out of the fade with its code;
+  /// then the boxes.
+  fn nesting(&self) -> u8 {
+    if self.step.is_some() {
+      0
+    } else if self.class.starts_with("ohl") {
+      1
+    } else {
+      2
+    }
+  }
 }
 
 /// A block body as shown and as compiled, the way every other pass wants it:
@@ -215,8 +238,8 @@ fn expand_steps(body: &str) -> Result<String> {
     let rest = line.trim_start();
 
     if let Some(code) = hidden(rest) {
-      if step_line(code.trim_start()).is_some() || has_step(code) {
-        bail!("a step marker on a hidden line would show nothing");
+      if step_line(code.trim_start()).is_some() || has_timed_marker(code) {
+        bail!("a step or highlight marker on a hidden line would show nothing");
       }
       out.push(format!("{line}{cr}"));
       continue;
@@ -239,10 +262,14 @@ fn expand_steps(body: &str) -> Result<String> {
   Ok(out.join("\n"))
 }
 
-/// Whether `text` holds a `[[+N:` marker.
-fn has_step(text: &str) -> bool {
+/// Whether `text` holds a `[[+N:` or a `[[=…:` marker, neither of which
+/// means anything on a line that is not shown.
+fn has_timed_marker(text: &str) -> bool {
   (0 .. text.len()).any(|i| {
-    matches!(opener(&text.as_bytes()[i ..]), Some((Opener::Step(_), _)))
+    matches!(
+      opener(&text.as_bytes()[i ..]),
+      Some((Opener::Step(_) | Opener::Focus(_), _))
+    )
   })
 }
 
@@ -423,6 +450,9 @@ enum Opener {
   Frame(u8),
   /// `[[+N:`, code revealed on step N.
   Step(u32),
+  /// `[[=:`, code highlighted from the start, or `[[=N:`, highlighted on
+  /// step N.
+  Focus(Option<u32>),
 }
 
 /// The marker `bytes` starts with, and its length. Anything else starting with
@@ -436,6 +466,17 @@ fn opener(bytes: &[u8]) -> Option<(Opener, usize)> {
     }
     let step = std::str::from_utf8(&digits[.. n]).ok()?.parse().ok()?;
     return Some((Opener::Step(step), n + 4));
+  }
+  if let Some(digits) = rest.strip_prefix(b"=") {
+    let n = digits.iter().take_while(|c| c.is_ascii_digit()).count();
+    if digits.get(n) != Some(&b':') {
+      return None;
+    }
+    let step = match n {
+      0 => None,
+      _ => Some(std::str::from_utf8(&digits[.. n]).ok()?.parse().ok()?),
+    };
+    return Some((Opener::Focus(step), n + 4));
   }
   match rest {
     [key, b':', ..] if is_frame_key(*key) => Some((Opener::Frame(*key), 4)),
@@ -463,11 +504,39 @@ fn strip(src: &str) -> Result<(String, Vec<Span>)> {
   let mut i = 0;
 
   while i < bytes.len() {
-    // `[[x:` opens a frame, `[[+N:` a step.
+    // `[[x:` opens a frame, `[[+N:` a step, `[[=:` a highlight.
     if let Some((kind, len)) = opener(&bytes[i ..]) {
       let step = match kind {
         Opener::Frame(key) => {
-          open.push((code.len(), frame_class(key as char), None));
+          open.push((code.len(), frame_class(key as char), None, None));
+          i += len;
+          continue;
+        }
+        Opener::Focus(focus) => {
+          if focus == Some(0) {
+            bail!(
+              "steps count from 1, the first click: `[[=0:` is never lit. \
+               `[[=:` is lit from the start"
+            );
+          }
+          // Lit on a step before its code is shown, a highlight would light
+          // nothing.
+          let outer = open.iter().filter_map(|o| o.2).max();
+          if let (Some(n), Some(outer)) = (focus, outer) {
+            if n < outer {
+              bail!(
+                "the highlight on step {n} is inside step {outer}, so its \
+                 code is not shown until after it is lit"
+              );
+            }
+          }
+          // A timed highlight is a reveal fragment, which is what gives it a
+          // click of its own -- `custom`, so reveal does not also hide it.
+          let class = match focus {
+            Some(_) => "ohl fragment custom",
+            None => "ohl on",
+          };
+          open.push((code.len(), class.to_string(), None, focus));
           i += len;
           continue;
         }
@@ -486,7 +555,7 @@ fn strip(src: &str) -> Result<(String, Vec<Span>)> {
           );
         }
       }
-      open.push((code.len(), "fragment".to_string(), Some(step)));
+      open.push((code.len(), "fragment".to_string(), Some(step), None));
       i += len;
       continue;
     }
@@ -519,12 +588,13 @@ fn strip(src: &str) -> Result<(String, Vec<Span>)> {
         is_marker: true,
         data_type: None,
         step: None,
+        focus: None,
       });
       continue;
     }
 
     if bytes[i ..].starts_with(b":]]") {
-      let (start, class, step) = open
+      let (start, class, step, focus) = open
         .pop()
         .context("`:]]` with no matching `[[` origin marker")?;
       spans.push(Span {
@@ -533,6 +603,7 @@ fn strip(src: &str) -> Result<(String, Vec<Span>)> {
         is_marker: true,
         data_type: None,
         step,
+        focus,
       });
       i += 3;
       continue;
@@ -598,6 +669,7 @@ fn highlight(code: &str) -> Vec<Span> {
             is_marker: false,
             data_type: None,
             step: None,
+            focus: None,
           });
           continue;
         }
@@ -632,6 +704,7 @@ fn highlight(code: &str) -> Vec<Span> {
       is_marker: false,
       data_type: None,
       step: None,
+      focus: None,
     });
   }
 
@@ -667,6 +740,7 @@ fn split_at_markers(spans: Vec<Span>, markers: &[Span]) -> Vec<Span> {
           is_marker: false,
           data_type: None,
           step: None,
+          focus: None,
         });
         start = cut;
       }
@@ -697,9 +771,114 @@ fn push_escaped(out: &mut String, text: &str) {
   }
 }
 
+/// A callout for a block's highlights, written after the fence as
+/// `[=N]: text` for the highlights lit on step N, or `[=]: text` for the
+/// `[[=:…:]]` ones lit from the start.
+#[derive(Debug)]
+pub struct Note {
+  step: Option<u32>,
+  /// Markdown, inline only.
+  text: String,
+  /// Line in the file, for diagnostics.
+  line: usize,
+}
+
+/// `[=N]: text`, if `line` is one. `None` for any other line, which ends the
+/// notes after a fence; an error for one that is a note but a malformed one.
+fn note(line: &str) -> Option<Result<(Option<u32>, String)>> {
+  let rest = line.trim().strip_prefix("[=")?;
+  let (key, text) = rest.split_once("]:")?;
+  if !key.bytes().all(|c| c.is_ascii_digit()) {
+    return None;
+  }
+  Some((|| {
+    let step = match key {
+      "" => None,
+      n => Some(n.parse::<u32>()?),
+    };
+    if step == Some(0) {
+      bail!("steps count from 1, the first click: `[=0]` is never shown");
+    }
+    let text = text.trim();
+    if text.is_empty() {
+      bail!("`[={key}]` has no text");
+    }
+    Ok((step, text.to_string()))
+  })())
+}
+
+/// A note's markdown as inline HTML: the paragraph pulldown-cmark wraps it
+/// in comes off, and so does any newline, which inside the raw-HTML block
+/// the block is spliced in as could end it.
+fn note_html(text: &str) -> String {
+  let mut html = String::new();
+  pulldown_cmark::html::push_html(&mut html, pulldown_cmark::Parser::new(text));
+  let html = html.trim();
+  let html = html.strip_prefix("<p>").unwrap_or(html);
+  let html = html.strip_suffix("</p>").unwrap_or(html);
+  html.replace('\n', " ")
+}
+
+/// The caption strip under a block: every note, stacked in one grid cell so
+/// the strip is as tall as the tallest of them from the first frame, and
+/// showing a step's note changes nothing below the block. Checked against
+/// the highlights each note explains.
+fn notes_html(notes: &[Note], markers: &[Span]) -> Result<String> {
+  if notes.is_empty() {
+    return Ok(String::new());
+  }
+  let lit_from_start = markers.iter().any(|m| m.class == "ohl on");
+  let steps: Vec<u32> = markers.iter().filter_map(|m| m.focus).collect();
+
+  let mut out = String::from(r#"<div class="ohl-notes">"#);
+  for (i, note) in notes.iter().enumerate() {
+    let at = |message: String| anyhow::anyhow!("{}: {message}", note.line);
+    if notes[.. i].iter().any(|n| n.step == note.step) {
+      let key = note.step.map(|n| n.to_string()).unwrap_or_default();
+      return Err(at(format!("`[={key}]` is defined twice")));
+    }
+    match note.step {
+      Some(n) if !steps.contains(&n) => {
+        return Err(at(format!(
+          "`[={n}]` explains step {n}, but no `[[={n}:` highlight in the \
+           block is lit on it"
+        )))
+      }
+      None if !lit_from_start => {
+        return Err(at(
+          "`[=]` explains the highlights lit from the start, but the block \
+           has no `[[=:` highlight"
+            .to_string(),
+        ))
+      }
+      _ => {}
+    }
+    // A step's note is a reveal fragment on that step, as its highlights
+    // are, so the two are renumbered together; `custom` keeps reveal from
+    // hiding it, which aquascope-reveal.js does instead.
+    match note.step {
+      Some(n) => out.push_str(&format!(
+        r#"<div class="ohl-note fragment custom" data-fragment-index="{n}">{}</div>"#,
+        note_html(&note.text)
+      )),
+      None => out.push_str(&format!(
+        r#"<div class="ohl-note">{}</div>"#,
+        note_html(&note.text)
+      )),
+    }
+  }
+  out.push_str("</div>");
+  Ok(out)
+}
+
 /// Renders one block's worth of marked-up Rust. `typer` is asked for the
 /// block's types only if it has a `[[^:…:]]` marker.
-pub fn render(src: &str, opts: &Options, typer: &dyn Typer) -> Result<String> {
+pub fn render(
+  src: &str,
+  opts: &Options,
+  notes: &[Note],
+  typer: &dyn Typer,
+) -> Result<String> {
   // The block's last line ends in a newline that belongs to the closing fence,
   // not to the code. Exactly that one comes off, so the rendered block has the
   // lines the author wrote -- blank ones at either end included.
@@ -732,18 +911,19 @@ pub fn render(src: &str, opts: &Options, typer: &dyn Typer) -> Result<String> {
     .filter(|span| span.class != "hljs-symbol" || !boxed.contains(&span.range))
     .collect();
 
+  // The step after the last timed highlight, on which the block goes back
+  // to full strength. Taken before the markers are moved into `spans`.
+  let unlit = markers.iter().filter_map(|m| m.focus).max().map(|n| n + 1);
+  let notes = notes_html(notes, &markers)?;
+
   let mut spans = split_at_markers(tokens, &markers);
   spans.extend(markers);
   // Opened outermost-first at each offset, a marker outside a token span
   // covering the same range, and a step outside a box covering the same range
-  // -- otherwise the box would stay on the slide around the hidden code.
+  // -- otherwise the box would stay on the slide around the hidden code. See
+  // `Span::nesting` for the order among markers.
   spans.sort_by_key(|s| {
-    (
-      s.range.start,
-      Reverse(s.range.end),
-      !s.is_marker,
-      s.step.is_none(),
-    )
+    (s.range.start, Reverse(s.range.end), !s.is_marker, s.nesting())
   });
 
   let mut out = String::new();
@@ -770,7 +950,7 @@ pub fn render(src: &str, opts: &Options, typer: &dyn Typer) -> Result<String> {
       )),
       None => out.push_str(&format!(r#"<span class="{}""#, span.class)),
     }
-    if let Some(step) = span.step {
+    if let Some(step) = span.step.or(span.focus) {
       out.push_str(&format!(r#" data-fragment-index="{step}""#));
     }
     out.push('>');
@@ -782,6 +962,14 @@ pub fn render(src: &str, opts: &Options, typer: &dyn Typer) -> Result<String> {
     out.push_str("</span>");
   }
   push_escaped(&mut out, &code[at ..]);
+
+  // Nothing on the slide may have a click after the last highlight, so the
+  // block makes one: an empty fragment that only marks the step.
+  if let Some(step) = unlit {
+    out.push_str(&format!(
+      r#"<span class="ohl-end fragment custom" data-fragment-index="{step}"></span>"#
+    ));
+  }
 
   // A line with nothing but whitespace on it has its first character escaped,
   // because two different parsers would otherwise eat the line:
@@ -853,7 +1041,7 @@ pub fn render(src: &str, opts: &Options, typer: &dyn Typer) -> Result<String> {
   // is what the run output is appended to -- so the output lands inside the
   // block's border rather than under it.
   Ok(format!(
-    r#"<div class="origins-block"{run}>{crab}<pre class="code hljs">{body}</pre></div>"#
+    r#"<div class="origins-block"{run}>{crab}<pre class="code hljs">{body}</pre>{notes}</div>"#
   ))
 }
 
@@ -968,15 +1156,41 @@ pub fn replacements(
     let Some(spec) = spec else {
       continue;
     };
-    let Some(end) = end else {
+    let Some(mut end) = end else {
       bail!("{}: unclosed ```origins fence", first_line + n);
     };
+
+    // The block's notes follow the fence, blank lines allowed between them,
+    // and are spliced away with it. Scanning ahead on a copy is what lets a
+    // blank line after the last note stay where it was.
+    let mut notes = Vec::new();
+    let mut scan = lines.clone();
+    let mut scanned = offset;
+    while let Some((m, next)) = scan.next() {
+      scanned += next.len();
+      if next.trim().is_empty() {
+        continue;
+      }
+      let Some(parsed) = note(next) else {
+        break;
+      };
+      let (step, text) =
+        parsed.with_context(|| format!("{}: in a callout", first_line + m))?;
+      notes.push(Note {
+        step,
+        text,
+        line: first_line + m,
+      });
+      lines = scan.clone();
+      offset = scanned;
+      end = scanned - (next.len() - next.trim_end_matches(['\r', '\n']).len());
+    }
 
     let line = first_line + n;
     let opts = Options::parse(spec)
       .with_context(|| format!("in the ```origins block at line {line}"))?;
 
-    let html = render(&body, &opts, typer)
+    let html = render(&body, &opts, &notes, typer)
       .with_context(|| format!("in the ```origins block at line {line}"))?;
     out.push((start .. end, html));
 
@@ -1645,5 +1859,135 @@ mod test {
     );
     assert!(err("```origins\n#1 let a = [[a:vec![\n1]:]];\n```\n")
       .contains("does not also"));
+  }
+
+  #[test]
+  fn a_static_highlight_is_lit_from_the_start() {
+    let html = one("```origins,notation\nlet a = [[=:x + 1:]];\n```\n");
+    assert!(pre(&html).contains("<span class=\"ohl on\">x + 1</span>"), "{html}");
+    // Nothing timed, so no step to clear it on.
+    assert!(!html.contains("ohl-end"), "{html}");
+  }
+
+  #[test]
+  fn a_timed_highlight_is_a_fragment_reveal_does_not_hide() {
+    let html =
+      one("```origins,notation\nlet a = [[=1:x:]];\nlet b = [[=3:y:]];\n```\n");
+    assert!(
+      html.contains(
+        "<span class=\"ohl fragment custom\" data-fragment-index=\"1\">x</span>"
+      ),
+      "{html}"
+    );
+    // The block clears on the step after its last highlight.
+    assert!(
+      html.contains(
+        "<span class=\"ohl-end fragment custom\" data-fragment-index=\"4\"></span>"
+      ),
+      "{html}"
+    );
+  }
+
+  #[test]
+  fn a_highlight_lifts_a_box_over_the_same_code_and_stays_inside_a_step() {
+    let html =
+      one("```origins,notation\nlet a = [[+1:[[=2:[[a:vec![]:]]:]]:]];\n```\n");
+    assert!(
+      html.contains(
+        "<span class=\"fragment\" data-fragment-index=\"1\"><span class=\"ohl \
+         fragment custom\" data-fragment-index=\"2\"><span class=\"oframe \
+         origin-a\">"
+      ),
+      "{html}"
+    );
+  }
+
+  #[test]
+  fn a_highlight_wraps_whole_lines_and_is_erased_from_the_program() {
+    let md = "```origins\nfn main() {\n    [[=1:\n    let a = 1;\n    let b = a;\n    :]]\n}\n```\n";
+    let html = one(md);
+    assert!(
+      pre(&html).contains(
+        "\n    <span class=\"ohl fragment custom\" data-fragment-index=\"1\">\
+         let a = 1;\n    let b = a;</span>\n}"
+      ),
+      "{html}"
+    );
+    assert_eq!(
+      programs(md)[0].code,
+      "fn main() {\n    let a = 1;\n    let b = a;\n}"
+    );
+  }
+
+  #[test]
+  fn an_index_with_brackets_is_not_a_highlight() {
+    // `x[[=` is not Rust, but `[[` followed by anything else must stay code.
+    let html = one("```origins,notation\nlet a = m[[0][0]];\n```\n");
+    assert!(!html.contains("ohl"), "{html}");
+  }
+
+  #[test]
+  fn rejects_highlights_that_could_not_show() {
+    assert!(err("```origins\nlet a = [[=0:1:]];\n```\n").contains("count from 1"));
+    assert!(
+      err("```origins\n# let a = [[=:1:]];\n```\n").contains("hidden line")
+    );
+    assert!(
+      err("```origins\nlet a = [[+3:[[=2:1:]]:]];\n```\n")
+        .contains("inside step 3")
+    );
+  }
+
+  #[test]
+  fn notes_after_a_fence_become_its_caption_strip() {
+    let md = "```origins,notation\nlet a = [[=1:x:]] + [[=2:y:]];\n```\n[=1]: the `x`\n\n[=2]: the **y**\n\nAfter.\n";
+    let (reps, _) = replacements(md, 1, &NoTypes).unwrap();
+    let (range, html) = &reps[0];
+    assert!(
+      html.contains(
+        "<div class=\"ohl-notes\"><div class=\"ohl-note fragment custom\" \
+         data-fragment-index=\"1\">the <code>x</code></div>"
+      ),
+      "{html}"
+    );
+    assert!(
+      html.contains("data-fragment-index=\"2\">the <strong>y</strong></div>"),
+      "{html}"
+    );
+    // The notes are spliced away with the fence; the blank line after the
+    // last one, and what follows, stay.
+    assert_eq!(&md[range.end ..], "\n\nAfter.\n");
+  }
+
+  #[test]
+  fn a_note_for_the_highlights_lit_from_the_start() {
+    let html = one("```origins,notation\nlet a = [[=:x:]];\n```\n[=]: always\n");
+    assert!(html.contains("<div class=\"ohl-note\">always</div>"), "{html}");
+  }
+
+  #[test]
+  fn notes_end_at_the_first_line_that_is_not_one() {
+    // A blank line between the fence and the notes is allowed...
+    let html = one("```origins,notation\nlet a = [[=1:x:]];\n```\n\n[=1]: a note\n");
+    assert!(html.contains("ohl-notes"), "{html}");
+    let html = one("```origins,notation\nlet a = [[=1:x:]];\n```\nText.\n[=1]: too late\n");
+    // ...but anything else ends them.
+    assert!(!html.contains("ohl-notes"), "{html}");
+  }
+
+  #[test]
+  fn rejects_notes_that_explain_nothing() {
+    assert!(err("```origins,notation\nlet a = [[=1:x:]];\n```\n[=2]: hm\n")
+      .contains("no `[[=2:` highlight"));
+    assert!(err("```origins,notation\nlet a = [[=1:x:]];\n```\n[=]: hm\n")
+      .contains("no `[[=:` highlight"));
+    assert!(err(
+      "```origins,notation\nlet a = [[=1:x:]];\n```\n[=1]: a\n[=1]: b\n"
+    )
+    .contains("defined twice"));
+    assert!(err("```origins,notation\nlet a = [[=1:x:]];\n```\n[=0]: a\n")
+      .contains("count from 1"));
+    assert!(err("```origins,notation\nlet a = [[=1:x:]];\n```\n[=1]:\n")
+      .contains("has no text"));
   }
 }
