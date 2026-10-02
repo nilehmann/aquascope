@@ -175,7 +175,8 @@ fn build(args: &Args, preprocessor: &mut AquascopePreprocessor) -> Result<()> {
     })
     .collect();
 
-  match origins::replacements(body, first_body_line, &*preprocessor) {
+  let notes = front.notes.unwrap_or_default();
+  match origins::replacements(body, first_body_line, notes, &*preprocessor) {
     Ok((origin_edits, programs)) => {
       edits.extend(origin_edits);
       // Every ```origins block that claims to be code is compiled, so a typo

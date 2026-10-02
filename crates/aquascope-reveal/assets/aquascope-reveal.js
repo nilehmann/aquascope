@@ -431,7 +431,141 @@
             : !stepping && !noting
         );
       });
+      if (block.classList.contains("ohl-float")) {
+        float(block, block.querySelector(".ohl-note.on"));
+        // The block grows when a run's output arrives in it, which would put
+        // a card hanging under the block over that output.
+        if (!block.ohlResize && window.ResizeObserver) {
+          block.ohlResize = new ResizeObserver(function () {
+            float(block, block.querySelector(".ohl-note.on"));
+          });
+          block.ohlResize.observe(block);
+        }
+      }
     });
+  }
+
+  // Places a floating note's card beside what is lit with it, inside the
+  // code's frame.
+  //
+  // First choice is right of the lit lines, past every bit of code on the
+  // lines the card spans -- lit or not, so the card covers no code at all. A
+  // card wraps to the room there, which changes its height and so the lines
+  // it spans, so the fit is found by narrowing a few times. When too little
+  // room is left for a readable card it goes just under or just over the lit
+  // lines where that covers no code, and otherwise under the block. A note
+  // with nothing lit is placed the same way against the first line, ending
+  // up in the top-right corner.
+  //
+  // Measured in the page and set in the layer's own pixels, which differ
+  // when an ancestor is scaled.
+  function float(block, note) {
+    if (!note) {
+      return;
+    }
+    var pre = block.querySelector("pre.code");
+    var layer = note.parentNode;
+    var lr = layer.getBoundingClientRect();
+    var pr = pre.getBoundingClientRect();
+    var scale = lr.width / layer.offsetWidth || 1;
+    var gap = 0.6 * parseFloat(getComputedStyle(pre).fontSize) * scale;
+    var set = function (left, top) {
+      note.style.left = (left - lr.left) / scale + "px";
+      note.style.top = (top - lr.top) / scale + "px";
+    };
+    var rows = lines(pre);
+
+    var lit = null;
+    block.querySelectorAll(".ohl-box.on").forEach(function (box) {
+      var r = box.getBoundingClientRect();
+      if (!r.width) {
+        return;
+      }
+      lit = lit
+        ? {
+            left: Math.min(lit.left, r.left),
+            top: Math.min(lit.top, r.top),
+            right: Math.max(lit.right, r.right),
+            bottom: Math.max(lit.bottom, r.bottom)
+          }
+        : { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+    });
+    var anchor = lit || {
+      left: pr.left,
+      right: pr.left,
+      top: pr.top + gap / 2,
+      bottom: pr.top + gap / 2
+    };
+
+    // Beside.
+    var top;
+    var left;
+    var fits = false;
+    var height = note.getBoundingClientRect().height;
+    for (var tries = 0; tries < 4; tries++) {
+      top = Math.max(
+        pr.top + gap / 2,
+        Math.min(anchor.top, pr.bottom - height - gap / 2)
+      );
+      var from = Math.min(top, anchor.top);
+      var to = Math.max(top + height, anchor.bottom);
+      var end = anchor.right;
+      rows.forEach(function (row) {
+        if (row.bottom > from && row.top < to) {
+          end = Math.max(end, row.right);
+        }
+      });
+      if (fits && left >= end + 2 * gap - 0.5) {
+        break;
+      }
+      left = end + 2 * gap;
+      var room = pr.right - gap - left;
+      fits = room >= 25 * gap;
+      if (!fits) {
+        break;
+      }
+      note.style.maxWidth = room / scale + "px";
+      height = note.getBoundingClientRect().height;
+    }
+    if (fits) {
+      set(left, top);
+      return;
+    }
+    note.style.maxWidth = "";
+    var card = note.getBoundingClientRect();
+    if (!lit) {
+      set(pr.right - gap - card.width, pr.top + gap / 2);
+      return;
+    }
+
+    // Just under the lit lines or just over them, if that covers no code;
+    // otherwise hanging under the block, clear of the code, in what is below
+    // it on the slide. Only when the slide has no room there does the card
+    // go over code -- the faded lines next to the lit ones, as few as can be.
+    left = Math.max(pr.left + gap, Math.min(lit.left, pr.right - gap - card.width));
+    var covered = function (top) {
+      return rows.filter(function (row) {
+        return row.bottom > top && row.top < top + card.height &&
+          row.right > left && row.left < left + card.width;
+      }).length;
+    };
+    var options = [lit.bottom + gap / 2, lit.top - card.height - gap / 2]
+      .filter(function (top) {
+        return top >= pr.top && top + card.height <= pr.bottom;
+      })
+      .sort(function (a, b) {
+        return covered(a) - covered(b);
+      });
+    var slide = block.closest("section").getBoundingClientRect();
+    var hang = block.getBoundingClientRect().bottom + gap / 2;
+    if (options.length && covered(options[0]) === 0) {
+      top = options[0];
+    } else if (hang + card.height <= Math.min(slide.bottom, window.innerHeight)) {
+      top = hang;
+    } else {
+      top = options.length ? options[0] : hang;
+    }
+    set(left, top);
   }
 
   var SVG = "http://www.w3.org/2000/svg";

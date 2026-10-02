@@ -104,6 +104,17 @@ const PRIMS: &[&str] = &[
   "usize", "isize", "f32", "f64", "bool", "char", "str",
 ];
 
+/// Where a block's callouts, the `[=N]: text` lines after it, are shown.
+#[derive(Debug, Default, Clone, Copy, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NotesStyle {
+  /// In a strip under the code, as tall as the tallest note from the start.
+  #[default]
+  Strip,
+  /// In a card floating over the code beside what is lit, taking no room.
+  Float,
+}
+
 /// What a block asks for beyond being rendered.
 #[derive(Debug, Default, PartialEq)]
 pub struct Options {
@@ -114,6 +125,8 @@ pub struct Options {
   /// The block is not a program: a bare signature, or a body elided to
   /// `{ ... }`. Not compiled at all.
   notation: bool,
+  /// `notes=float` or `notes=strip`, overriding the deck's `notes`.
+  notes: Option<NotesStyle>,
 }
 
 impl Options {
@@ -124,9 +137,15 @@ impl Options {
         "run" => opts.run = true,
         "shouldFail" => opts.should_fail = true,
         "notation" => opts.notation = true,
+        "notes=strip" => opts.notes = Some(NotesStyle::Strip),
+        "notes=float" => opts.notes = Some(NotesStyle::Float),
+        _ if entry.starts_with("notes=") => bail!(
+          "unknown ```origins specifier `{entry}`, expected notes=strip or \
+           notes=float"
+        ),
         _ => bail!(
           "unknown ```origins specifier `{entry}`, expected one of run, \
-           shouldFail, notation"
+           shouldFail, notation, notes=strip, notes=float"
         ),
       }
     }
@@ -883,10 +902,13 @@ fn notes_html(notes: &[Note], markers: &[Span]) -> Result<String> {
 
 /// Renders one block's worth of marked-up Rust. `typer` is asked for the
 /// block's types only if it has a `[[^:…:]]` marker.
+///
+/// `style` is where the notes go, the block's own `notes=` already applied.
 pub fn render(
   src: &str,
   opts: &Options,
   notes: &[Note],
+  style: NotesStyle,
   typer: &dyn Typer,
 ) -> Result<String> {
   // The block's last line ends in a newline that belongs to the closing fence,
@@ -1052,12 +1074,20 @@ pub fn render(
     String::new()
   };
 
+  // Floating notes are the same markup as the strip, laid out differently:
+  // aquascope-reveal.js places the card shown beside what is lit.
+  let class = if style == NotesStyle::Float && !notes.is_empty() {
+    "origins-block ohl-float"
+  } else {
+    "origins-block"
+  };
+
   // The wrapper is what `.aquascope` is to an editor: it carries the frame,
   // it is the positioned element the crab and the Run button hang off, and it
   // is what the run output is appended to -- so the output lands inside the
   // block's border rather than under it.
   Ok(format!(
-    r#"<div class="origins-block"{run}>{crab}<pre class="code hljs">{body}</pre>{notes}</div>"#
+    r#"<div class="{class}"{run}>{crab}<pre class="code hljs">{body}</pre>{notes}</div>"#
   ))
 }
 
@@ -1120,10 +1150,12 @@ fn attribute(text: &str) -> String {
 /// `content` as given -- the same slice `main` applies them to. `first_line`
 /// is the line number `content` starts at in the file on disk, so that a
 /// diagnostic names the line the author sees rather than one shifted by the
-/// front matter `main` stripped first.
+/// front matter `main` stripped first. `default_notes` is the deck's choice
+/// of where callouts go, which a block's `notes=` overrides.
 pub fn replacements(
   content: &str,
   first_line: usize,
+  default_notes: NotesStyle,
   typer: &dyn Typer,
 ) -> Result<(Vec<Replacement>, Vec<Program>)> {
   /// The backtick count of a fence line, and whatever follows it.
@@ -1206,7 +1238,8 @@ pub fn replacements(
     let opts = Options::parse(spec)
       .with_context(|| format!("in the ```origins block at line {line}"))?;
 
-    let html = render(&body, &opts, &notes, typer)
+    let style = opts.notes.unwrap_or(default_notes);
+    let html = render(&body, &opts, &notes, style, typer)
       .with_context(|| format!("in the ```origins block at line {line}"))?;
     out.push((start .. end, html));
 
@@ -1257,6 +1290,16 @@ pub fn check(programs: &[Program], file: &str) -> Vec<Problem> {
 #[cfg(test)]
 mod test {
   use super::*;
+
+  /// The deck default most tests are about; `super::replacements` for the
+  /// others.
+  fn replacements(
+    content: &str,
+    first_line: usize,
+    typer: &dyn Typer,
+  ) -> Result<(Vec<Replacement>, Vec<Program>)> {
+    super::replacements(content, first_line, NotesStyle::Strip, typer)
+  }
   use crate::types::ExprType;
 
   /// For blocks with no `[[^:…:]]` marker, which never ask.
@@ -2039,5 +2082,26 @@ mod test {
       .contains("count from 1"));
     assert!(err("```origins,notation\nlet a = [[=1:x:]];\n```\n[=1]:\n")
       .contains("has no text"));
+  }
+
+  #[test]
+  fn notes_float_from_the_deck_or_the_block() {
+    let block = |spec: &str, notes: &str, deck| {
+      let md = format!("```origins,notation{spec}\nlet a = [[=1:x:]];\n```\n{notes}");
+      super::replacements(&md, 1, deck, &NoTypes).unwrap().0.remove(0).1
+    };
+    let floats = |html: String| {
+      html.starts_with("<div class=\"origins-block ohl-float\">")
+    };
+    // The same notes either way; only the block's class says where.
+    assert!(floats(block("", "[=1]: x\n", NotesStyle::Float)));
+    assert!(!floats(block("", "[=1]: x\n", NotesStyle::Strip)));
+    // A block's own choice wins over the deck's.
+    assert!(!floats(block(",notes=strip", "[=1]: x\n", NotesStyle::Float)));
+    assert!(floats(block(",notes=float", "[=1]: x\n", NotesStyle::Strip)));
+    // A block with no notes has nothing to float.
+    assert!(!floats(block(",notes=float", "", NotesStyle::Float)));
+    assert!(err("```origins,notes=side\nfn main() {}\n```\n")
+      .contains("expected notes=strip or notes=float"));
   }
 }

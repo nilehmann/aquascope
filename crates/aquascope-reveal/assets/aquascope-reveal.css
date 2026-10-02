@@ -535,6 +535,53 @@
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
 }
 
+/* Floating callouts, for a block with `notes=float` or a deck with
+ * `notes: float`: the same notes, as a card over the code instead of a strip
+ * under it, so the block is no taller for having them.
+ *
+ * The strip becomes a layer over the whole block that takes no room and no
+ * clicks, and each note a card in it that aquascope-reveal.js places beside
+ * what is lit -- right of the lit lines when the block has room there,
+ * otherwise just under them -- or, for a note with nothing lit, in the
+ * block's top-right corner. No arrow: the card's edge is the highlight's
+ * colour, and it sits next to the tint it explains.
+ *
+ * The layer is above the fade and the lit code, but below a lit highlight
+ * whose type tooltip is open, which `z-index: 4` lifts over it. */
+.reveal .ohl-float .ohl-notes,
+.reveal .ohl-float .ohl-notes:has(.ohl-note.on) {
+  display: block;
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  padding: 0;
+  border: 0;
+  background: none;
+  pointer-events: none;
+}
+
+.reveal .ohl-float .ohl-note {
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: 46%;
+  padding: 0.45em 0.75em;
+  background: var(--ohl-notes-bg, #fffdf3);
+  border: 1px solid var(--ohl-note-border, #e3d48f);
+  border-left: 0.32em solid var(--ohl-note-edge, #f1d660);
+  border-radius: 0.3em;
+  box-shadow: 0 0.25em 0.9em rgba(60, 50, 10, 0.16);
+  font-size: 0.95em;
+  line-height: 1.35;
+  pointer-events: auto;
+}
+
+.reveal .ohl-float .ohl-note::before {
+  display: none;
+}
+
 /* A type tooltip goes over everything a highlight puts in its way. A lit
  * highlight is a stacking context of its own, so a tooltip inside one can
  * rise only within it, and the next lit highlight down -- on the same layer,

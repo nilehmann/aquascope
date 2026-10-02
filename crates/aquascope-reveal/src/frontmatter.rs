@@ -8,6 +8,7 @@
 //! ---
 //! title: Ownership and Borrowing
 //! theme: white
+//! notes: float
 //! revealOptions:
 //!   navigationMode: default
 //!   slideNumber: "c/t"
@@ -42,6 +43,9 @@ pub struct FrontMatter {
   pub title: Option<String>,
   /// reveal.js theme name. Overridden by `--theme`.
   pub theme: Option<String>,
+  /// Where ```origins blocks show their callouts: `strip` (the default)
+  /// or `float`. A block's own `notes=` wins.
+  pub notes: Option<crate::origins::NotesStyle>,
   /// Merged into the object passed to `Reveal.initialize`.
   #[serde(default)]
   pub reveal_options: Map<String, Value>,

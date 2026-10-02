@@ -23,6 +23,7 @@ object passed to `Reveal.initialize`.
 ---
 title: Ownership and Borrowing
 theme: white
+notes: float
 revealOptions:
   navigationMode: default
   slideNumber: "c/t"
@@ -33,6 +34,8 @@ revealOptions:
 
 The block is recognised only when the file *starts* with `---`; anywhere else
 that line is a slide separator. `--title` and `--theme` override it.
+`notes` is where ```` ```origins ```` blocks show their
+[callouts](#callouts): `strip` (the default) or `float`.
 
 Unknown keys are an error rather than being ignored, as are options the rest of
 the pipeline depends on: `disableLayout` (Aquascope's arrows are drawn in
@@ -410,6 +413,32 @@ The strip never moves the slide. Every note is in it from the start,
 stacked in one place, so it is as tall as its longest note before any of
 them shows, and only which one is visible changes from step to step. Its
 background, `--ohl-notes-bg`, and its rule fade in with the first note.
+
+##### Floating callouts
+
+The strip costs the block a row at its bottom. `notes: float` in the front
+matter shows every block's notes as a card floating over the code instead,
+and `notes=float` or `notes=strip` in a fence overrides the deck for that
+block (```` ```origins,run,notes=float ````). The `[=N]:` lines are the same
+either way.
+
+A floating card takes no room and has no arrow: it sits beside what is lit,
+its left edge in the highlight's colour. aquascope-reveal.js places it on
+every step:
+
+- right of the lit lines, past the end of the code on every line the card
+  spans, and narrowed to fit there -- so it covers no code;
+- if that leaves too little room for a readable card, just under or just
+  over the lit lines, where that covers no code;
+- otherwise hanging under the block, over whatever is below it on the
+  slide -- or, when the slide has no room there, over the fewest faded
+  lines.
+
+A note with nothing lit is placed the same way against the block's first
+line, which puts it in the top-right corner. The card is re-placed when the
+window resizes and when the block grows, as it does when a run's output
+arrives. Its colours are `--ohl-notes-bg` for the background,
+`--ohl-note-edge` for its left edge and `--ohl-note-border` for the rest.
 
 Nothing moves as the focus does: the tint and the fade are both laid over
 the code rather than being part of it. The tint is an `svg.ohl-box` that
