@@ -5,8 +5,10 @@
 //! localhost, so the interesting part is only that it is correct about paths
 //! and content types.
 //!
-//! The one dynamic route is [`RUN_ENDPOINT`], which stands in for the Rust
-//! playground so that the Run button works without a network. See [`crate::run`].
+//! The dynamic routes are [`RUN_ENDPOINT`], which stands in for the Rust
+//! playground so that the Run button works without a network, and
+//! [`STREAM_ENDPOINT`], the same run with its output streamed. See
+//! [`crate::run`].
 
 use std::{
   fs,
@@ -23,6 +25,10 @@ use crate::run;
 /// Where the editor posts snippets. The path is the playground's, because the
 /// editor's default is the playground and it only varies the origin.
 pub const RUN_ENDPOINT: &str = "/evaluate.json";
+
+/// Where an ```origins block's Run button posts when the deck is served: the
+/// same request, its output streamed back as the program writes it.
+pub const STREAM_ENDPOINT: &str = "/run-stream";
 
 /// A snippet is a slide's worth of code. Anything larger is not a snippet.
 const MAX_BODY: usize = 1 << 20;
@@ -102,7 +108,7 @@ fn post(
   let path = target.split(['?', '#']).next().unwrap_or("/");
   let length = content_length(reader)?;
 
-  if path != RUN_ENDPOINT {
+  if path != RUN_ENDPOINT && path != STREAM_ENDPOINT {
     // The body has to come off the socket either way, or the browser sees the
     // response as a broken connection rather than a 404.
     let _ = read_body(reader, length);
@@ -113,8 +119,32 @@ fn post(
     return respond(stream, 413, "text/plain", b"body too large", false);
   };
 
+  if path == STREAM_ENDPOINT {
+    return stream_run(stream, &body);
+  }
+
   let json = run::evaluate(&body);
   respond(stream, 200, "application/json; charset=utf-8", &json, false)
+}
+
+/// Streams a run's output, one JSON line per piece. With no length known in
+/// advance, the body runs until the connection closes, which `Connection:
+/// close` already promises; each piece is flushed as it is written, so it
+/// reaches the browser at once. A write that fails means the browser has gone
+/// -- the slide was left, or Run pressed again -- and stops the program.
+fn stream_run(stream: &mut TcpStream, body: &[u8]) -> std::io::Result<()> {
+  write!(
+    stream,
+    "HTTP/1.1 200 OK\r\n\
+     Content-Type: application/x-ndjson; charset=utf-8\r\n\
+     Cache-Control: no-store\r\n\
+     Connection: close\r\n\r\n"
+  )?;
+  stream.flush()?;
+  run::stream(body, &mut |line| {
+    stream.write_all(line).and_then(|()| stream.flush()).is_ok()
+  });
+  Ok(())
 }
 
 /// Consumes the request headers, returning the declared body length. Anything

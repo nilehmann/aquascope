@@ -150,25 +150,41 @@
   var DEFAULT_RUN_URL = "https://play.rust-lang.org/evaluate.json";
 
   function runOrigins(block, result) {
+    // A run still streaming into this block is abandoned, and the server,
+    // seeing the connection go, stops its program.
+    if (result.aqAbort) {
+      result.aqAbort.abort();
+    }
+    var abort = (result.aqAbort = new AbortController());
+
     result.innerHTML =
       '<button type="button" class="cm-button result-close" title="Hide output">✕</button>' +
       '<pre><code class="result hljs language-bash">Running...</code></pre>';
     result.querySelector(".result-close").addEventListener("click", function () {
+      abort.abort();
       result.innerHTML = "";
     });
 
     var code = result.querySelector(".result");
-    fetch(window.AQUASCOPE_RUN_URL || DEFAULT_RUN_URL, {
+    var request = {
       headers: { "Content-Type": "application/json" },
       method: "POST",
       mode: "cors",
+      signal: abort.signal,
       body: JSON.stringify({
         version: "stable",
         optimize: "0",
         code: block.getAttribute("data-run-code"),
         edition: "2021"
       })
-    })
+    };
+
+    if (window.AQUASCOPE_RUN_STREAM_URL) {
+      streamRun(window.AQUASCOPE_RUN_STREAM_URL, request, code);
+      return;
+    }
+
+    fetch(window.AQUASCOPE_RUN_URL || DEFAULT_RUN_URL, request)
       .then(function (response) {
         return response.json();
       })
@@ -184,7 +200,66 @@
         }
       })
       .catch(function (error) {
-        code.innerText = "Playground Communication: " + error.message;
+        if (error.name !== "AbortError") {
+          code.innerText = "Playground Communication: " + error.message;
+        }
+      });
+  }
+
+  // The run as `--serve` streams it: one line of JSON per piece of output,
+  // `{"html": …}`, each added to the output as it arrives. A line is only
+  // read once it is whole, since the network may split one anywhere.
+  // "Running..." stays until the first piece, which is when compiling is
+  // over.
+  function streamRun(url, request, code) {
+    var decoder = new TextDecoder();
+    var buffered = "";
+    var started = false;
+    var shown = false;
+
+    function add(line) {
+      if (!line) {
+        return;
+      }
+      var html = JSON.parse(line).html;
+      if (!started) {
+        code.innerHTML = "";
+        code.classList.remove("result-no-output");
+        started = true;
+      }
+      // HTML from our own server, escaped there: rustc's colours as spans,
+      // the program's output as text.
+      code.insertAdjacentHTML("beforeend", html);
+      shown = shown || html.trim() !== "";
+    }
+
+    fetch(url, request)
+      .then(function (response) {
+        var reader = response.body.getReader();
+        function pump() {
+          return reader.read().then(function (chunk) {
+            if (chunk.value) {
+              buffered += decoder.decode(chunk.value, { stream: true });
+              var lines = buffered.split("\n");
+              buffered = lines.pop();
+              lines.forEach(add);
+            }
+            if (!chunk.done) {
+              return pump();
+            }
+            add(buffered + decoder.decode());
+            if (!shown) {
+              code.innerText = "No output";
+              code.classList.add("result-no-output");
+            }
+          });
+        }
+        return pump();
+      })
+      .catch(function (error) {
+        if (error.name !== "AbortError") {
+          code.insertAdjacentText("beforeend", "\nRun failed: " + error.message);
+        }
       });
   }
 

@@ -276,8 +276,10 @@ fn build(args: &Args, preprocessor: &mut AquascopePreprocessor) -> Result<()> {
   // off a laptop needs no network. See `serve::post`.
   let run_url = match args.serve {
     Some(_) => format!(
-      "  <script>window.AQUASCOPE_RUN_URL = \"{}\";</script>\n",
-      serve::RUN_ENDPOINT
+      "  <script>window.AQUASCOPE_RUN_URL = \"{}\"; \
+       window.AQUASCOPE_RUN_STREAM_URL = \"{}\";</script>\n",
+      serve::RUN_ENDPOINT,
+      serve::STREAM_ENDPOINT
     ),
     None => String::new(),
   };

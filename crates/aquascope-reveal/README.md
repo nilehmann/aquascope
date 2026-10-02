@@ -239,6 +239,15 @@ Aquascope editor's does -- posting to the Rust playground, or to
 needs no network. The output box, its close and expand buttons and the
 full-size modal are the editor's, so the two kinds of block behave alike.
 
+When the deck is served, the output is also *streamed*: each line appears as
+the program prints it, stdout and stderr interleaved as they were written, so
+two threads taking turns are seen taking turns. Compiler diagnostics arrive
+first, in one piece. Pressing Run again, or closing the output, stops the
+program that is still running. A deck hosted elsewhere posts to the
+playground, which only answers once the program has finished, and the
+editor's Run button in ```` ```aquascope ```` blocks does the same either
+way.
+
 ### Hidden lines
 
 A line whose first non-blank characters are `# ` is compiled but not shown.
