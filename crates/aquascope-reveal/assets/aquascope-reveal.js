@@ -399,28 +399,37 @@
     var blocks = slide.querySelectorAll(".origins-block");
     Array.prototype.forEach.call(blocks, function (block) {
       var all = block.querySelectorAll(".ohl");
-      if (all.length === 0) {
+      var notes = block.querySelectorAll(".ohl-note");
+      if (all.length === 0 && notes.length === 0) {
         return;
       }
-      var stepping = Array.prototype.some.call(
-        block.querySelectorAll(".ohl.fragment"),
-        function (el) {
-          return index(el) === step;
-        }
-      );
-      // A step's note goes with its highlights, the `[=]` note with the
-      // `[[=:` ones.
-      var lit = function (el) {
-        return el.classList.contains("fragment")
-          ? stepping && index(el) === step
-          : !stepping;
+      var onStep = function (selector) {
+        return Array.prototype.some.call(
+          block.querySelectorAll(selector),
+          function (el) {
+            return index(el) === step;
+          }
+        );
       };
+      var stepping = onStep(".ohl.fragment");
       Array.prototype.forEach.call(all, function (el) {
-        el.classList.toggle("on", lit(el));
-        frame(el, lit(el));
+        var lit = el.classList.contains("fragment")
+          ? index(el) === step
+          : !stepping;
+        el.classList.toggle("on", lit);
+        frame(el, lit);
       });
-      block.querySelectorAll(".ohl-note").forEach(function (note) {
-        note.classList.toggle("on", lit(note));
+      // A step's note is shown on its step, with that step's highlights or,
+      // when the step has none, on its own. The `[=]` note goes with the
+      // `[[=:` highlights, unless a step's note has the strip.
+      var noting = onStep(".ohl-note.fragment");
+      notes.forEach(function (note) {
+        note.classList.toggle(
+          "on",
+          note.classList.contains("fragment")
+            ? index(note) === step
+            : !stepping && !noting
+        );
       });
     });
   }
@@ -444,6 +453,11 @@
     if (!box) {
       box = el.ohlBox = document.createElementNS(SVG, "svg");
       box.setAttribute("class", "ohl-box");
+      // Empty until its highlight is first lit and it is measured. An svg's
+      // default size is 300 by 150, which hanging off the last line of code
+      // would give every block with a highlight a scroll bar.
+      box.setAttribute("width", 0);
+      box.setAttribute("height", 0);
       box.appendChild(document.createElementNS(SVG, "path"));
       el.closest("pre").appendChild(box);
     }

@@ -399,10 +399,12 @@ markdown's link reference definitions, so a plain markdown preview hides
 them.
 
 The notes start on the line after the closing fence, may be separated by
-blank lines, and end at the first line that is neither. A note that
-explains nothing fails the build: one for a step with no `[[=N:`
-highlight, `[=]` in a block with no `[[=:` highlight, or a step defined
-twice. A highlight without a note is fine.
+blank lines, and end at the first line that is neither. A note may be for a
+step with no `[[=N:` highlight: it is then shown on that step on its own,
+with nothing in the code singled out, and like the highlights it is gone
+the click after the block's last step. `[=]` in a block with no `[[=:`
+highlight, or a step defined twice, fails the build. A highlight without a
+note is fine.
 
 The strip never moves the slide. Every note is in it from the start,
 stacked in one place, so it is as tall as its longest note before any of

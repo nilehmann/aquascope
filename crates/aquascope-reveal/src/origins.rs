@@ -90,8 +90,12 @@ pub type Replacement = (Range<usize>, String);
 const KEYWORDS: &[&str] = &[
   "let", "mut", "fn", "struct", "impl", "if", "else", "return", "move", "for",
   "in", "while", "loop", "match", "pub", "use", "as", "ref", "const", "static",
-  "enum", "trait", "where", "break", "continue",
+  "enum", "trait", "where", "break", "continue", "unsafe", "async", "await",
+  "dyn", "extern", "crate", "mod", "self", "Self", "super", "type", "yield",
 ];
+
+/// Painted as hljs paints them, apart from the keywords.
+const LITERALS: &[&str] = &["true", "false"];
 
 /// Primitives, which hljs paints as types. Every other CamelCase name is
 /// treated as a type too, which is what hljs does with a user-defined one.
@@ -676,8 +680,17 @@ fn highlight(code: &str) -> Vec<Span> {
         let after_fn = prev.is_some_and(|(r, k)| {
           *k == TokenKind::Ident && &code[r.clone()] == "fn"
         });
-        if KEYWORDS.contains(&text) {
+        // `auto` is a keyword only in `auto trait`; anywhere else it is a
+        // name like any other.
+        let auto_trait = text == "auto"
+          && toks[n + 1 ..]
+            .iter()
+            .find(significant)
+            .is_some_and(|(r, k)| *k == TokenKind::Ident && &code[r.clone()] == "trait");
+        if KEYWORDS.contains(&text) || auto_trait {
           "hljs-keyword".to_string()
+        } else if LITERALS.contains(&text) {
+          "hljs-literal".to_string()
         } else if PRIMS.contains(&text) {
           "hljs-type".to_string()
         } else if text.starts_with(char::is_uppercase) {
@@ -821,14 +834,17 @@ fn note_html(text: &str) -> String {
 
 /// The caption strip under a block: every note, stacked in one grid cell so
 /// the strip is as tall as the tallest of them from the first frame, and
-/// showing a step's note changes nothing below the block. Checked against
-/// the highlights each note explains.
+/// showing a step's note changes nothing below the block.
+///
+/// A step's note need not have a highlight on that step: it is then shown on
+/// its own, a sentence about the code with nothing in it singled out. Only
+/// `[=]` is checked against the highlights, since it means "the ones lit from
+/// the start" and is shown with nothing else.
 fn notes_html(notes: &[Note], markers: &[Span]) -> Result<String> {
   if notes.is_empty() {
     return Ok(String::new());
   }
   let lit_from_start = markers.iter().any(|m| m.class == "ohl on");
-  let steps: Vec<u32> = markers.iter().filter_map(|m| m.focus).collect();
 
   let mut out = String::from(r#"<div class="ohl-notes">"#);
   for (i, note) in notes.iter().enumerate() {
@@ -838,12 +854,6 @@ fn notes_html(notes: &[Note], markers: &[Span]) -> Result<String> {
       return Err(at(format!("`[={key}]` is defined twice")));
     }
     match note.step {
-      Some(n) if !steps.contains(&n) => {
-        return Err(at(format!(
-          "`[={n}]` explains step {n}, but no `[[={n}:` highlight in the \
-           block is lit on it"
-        )))
-      }
       None if !lit_from_start => {
         return Err(at(
           "`[=]` explains the highlights lit from the start, but the block \
@@ -911,9 +921,15 @@ pub fn render(
     .filter(|span| span.class != "hljs-symbol" || !boxed.contains(&span.range))
     .collect();
 
-  // The step after the last timed highlight, on which the block goes back
-  // to full strength. Taken before the markers are moved into `spans`.
-  let unlit = markers.iter().filter_map(|m| m.focus).max().map(|n| n + 1);
+  // The step after the last timed highlight or note, on which the block goes
+  // back to full strength and its strip empties. Taken before the markers are
+  // moved into `spans`.
+  let unlit = markers
+    .iter()
+    .filter_map(|m| m.focus)
+    .chain(notes.iter().filter_map(|n| n.step))
+    .max()
+    .map(|n| n + 1);
   let notes = notes_html(notes, &markers)?;
 
   let mut spans = split_at_markers(tokens, &markers);
@@ -1977,9 +1993,42 @@ mod test {
   }
 
   #[test]
+  fn highlights_unsafe_and_auto_trait_but_not_a_variable_named_auto() {
+    let html = one(
+      "```origins,notation\npub unsafe auto trait Send { }\nlet auto = true;\n```\n",
+    );
+    assert!(
+      html.contains(
+        "<span class=\"hljs-keyword\">unsafe</span> \
+         <span class=\"hljs-keyword\">auto</span> \
+         <span class=\"hljs-keyword\">trait</span>"
+      ),
+      "{html}"
+    );
+    assert!(html.contains("<span class=\"hljs-keyword\">let</span> auto = "), "{html}");
+    assert!(html.contains("<span class=\"hljs-literal\">true</span>"), "{html}");
+  }
+
+  #[test]
+  fn a_note_may_stand_on_a_step_without_a_highlight() {
+    let html =
+      one("```origins,notation\nlet a = [[=1:x:]];\n```\n[=1]: x\n[=3]: all of it\n");
+    assert!(
+      html.contains("data-fragment-index=\"3\">all of it</div>"),
+      "{html}"
+    );
+    // The block's last click comes after its last note, not its last
+    // highlight, so that note is cleared too.
+    assert!(
+      html.contains(
+        "<span class=\"ohl-end fragment custom\" data-fragment-index=\"4\">"
+      ),
+      "{html}"
+    );
+  }
+
+  #[test]
   fn rejects_notes_that_explain_nothing() {
-    assert!(err("```origins,notation\nlet a = [[=1:x:]];\n```\n[=2]: hm\n")
-      .contains("no `[[=2:` highlight"));
     assert!(err("```origins,notation\nlet a = [[=1:x:]];\n```\n[=]: hm\n")
       .contains("no `[[=:` highlight"));
     assert!(err(
