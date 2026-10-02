@@ -389,20 +389,37 @@
   background: var(--ty-hover, hsl(197, 60%, 86%));
 }
 
-.reveal .ty:hover:not(:has(.ty:hover))::after {
+/* `.ty-measure` is the same box, built invisibly by aquascope-reveal.js to
+ * learn how wide the tooltip will be: centred under its expression, a long
+ * signature would run off the screen, and `--ty-shift` moves it back on. */
+.reveal .ty:hover:not(:has(.ty:hover))::after,
+.reveal .ty-measure {
   content: attr(data-type);
   position: absolute;
   top: calc(100% + 0.3em);
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(calc(-50% + var(--ty-shift, 0px)));
   z-index: 10;
   padding: 0.1em 0.5em;
-  white-space: nowrap;
+  /* `pre`, not `nowrap`: a function's popover is two lines, its declaration
+   * above its signature at this call, and is never wrapped otherwise. */
+  white-space: pre;
+  text-align: left;
   font-size: 1.25em;
   color: var(--ty-tip-fg, white);
   background: var(--ty-tip-bg, hsl(197, 40%, 25%));
   border-radius: 0.2em;
   pointer-events: none;
+}
+
+.reveal .ty-measure {
+  visibility: hidden;
+  transform: none;
+}
+
+.reveal .ty.ty-above:hover:not(:has(.ty:hover))::after {
+  top: auto;
+  bottom: calc(100% + 0.3em);
 }
 
 /* Highlights: `[[=:CODE:]]` and `[[=N:CODE:]]` wrap CODE in an `.ohl` span,

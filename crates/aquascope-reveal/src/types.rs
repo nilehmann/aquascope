@@ -18,11 +18,15 @@ use mdbook_aquascope::AquascopePreprocessor;
 use serde::Deserialize;
 
 /// One expression's type, as aquascope-driver's `types` subcommand reports it.
+/// For a function or method name, `ty` is its signature at this call and
+/// `decl` the signature it was declared with, where the two differ.
 #[derive(Debug, Deserialize)]
 pub struct ExprType {
   pub start: usize,
   pub end: usize,
   pub ty: String,
+  #[serde(default)]
+  pub decl: Option<String>,
 }
 
 /// Answers "what are the types in this program?" for `origins.rs`. A trait
@@ -51,8 +55,9 @@ impl Typer for AquascopePreprocessor {
 
 /// The type of the expression at `range` in `program`.
 ///
-/// A marker has to cover exactly one expression, or the name in a binding
-/// such as the `b` of `let mut b`. rustc gives an expression
+/// A marker has to cover exactly one expression, the name in a binding such
+/// as the `b` of `let mut b`, or a function or method name, which shows two
+/// lines: the signature as declared, then as instantiated at this call. rustc gives an expression
 /// in parentheses the parentheses' span, so `(b.deref())` is where the method
 /// call is reported; a marker around just `b.deref()` is still that
 /// expression, and is found by looking through the parentheses.
@@ -69,8 +74,9 @@ pub fn type_at(
   });
   let Some(found) = found else {
     bail!(
-      "`{}` is not an expression or a variable binding, so there is no type \
-       to show for it. A `[[^:…:]]` marker has to cover exactly one.",
+      "`{}` is not an expression, a variable binding or a function name, so \
+       there is no type to show for it. A `[[^:…:]]` marker has to cover \
+       exactly one.",
       &program[range]
     );
   };
@@ -80,7 +86,10 @@ pub fn type_at(
       &program[range]
     );
   }
-  Ok(found.ty.clone())
+  Ok(match &found.decl {
+    Some(decl) => format!("{decl}\n{}", found.ty),
+    None => found.ty.clone(),
+  })
 }
 
 /// `range` with one pair of enclosing parentheses taken off, if it is
@@ -118,6 +127,7 @@ mod test {
       start,
       end,
       ty: ty.to_string(),
+      decl: None,
     }
   }
 
@@ -134,6 +144,22 @@ mod test {
     let program = "*(b.deref())";
     let types = [ty(1, 12, "&i32")];
     assert_eq!(type_at(program, &types, 2 .. 11).unwrap(), "&i32");
+  }
+
+  #[test]
+  fn a_function_shows_its_declaration_above_this_call() {
+    let program = "mpsc::channel::<i32>()";
+    let types = [ExprType {
+      start: 6,
+      end: 13,
+      ty: "fn channel() -> (Sender<i32>, Receiver<i32>)".into(),
+      decl: Some("fn channel<T>() -> (Sender<T>, Receiver<T>)".into()),
+    }];
+    assert_eq!(
+      type_at(program, &types, 6 .. 13).unwrap(),
+      "fn channel<T>() -> (Sender<T>, Receiver<T>)\n\
+       fn channel() -> (Sender<i32>, Receiver<i32>)"
+    );
   }
 
   #[test]

@@ -155,9 +155,36 @@ Markers nest, and only the innermost one under the pointer answers, so
 hovering `b` above names `b` rather than the call around it. They combine
 with origin boxes, hidden lines and `run`.
 
-A marker has to cover exactly one expression, or the name a `let` or a
-parameter binds -- `let mut [[^:b:]]` -- and one that does not fails the
-build: `[[^:b.deref:]]()` is neither. An expression inside
+A marker on a function or method *name* shows its signature instead, twice
+when it is generic: as declared, bounds and all, and as instantiated at this
+call.
+
+```rust
+let (tx, rx) = mpsc::[[^:channel:]]::<i32>();
+tx.[[^:send:]](1).unwrap();
+```
+
+shows, on `channel` and on `send`,
+
+```
+fn channel<T>() -> (Sender<T>, Receiver<T>)
+fn channel() -> (Sender<i32>, Receiver<i32>)
+
+fn send(&self, t: T) -> Result<(), SendError<T>>
+fn send(&self, t: i32) -> Result<(), SendError<i32>>
+```
+
+The declaration is the function's own source text, so a `std` function reads
+as it does in the standard library -- `where` clause on a line of its own --
+which takes the toolchain's `rust-src` component; without it the generic
+signature is rebuilt from the types. The marker may cover the name alone or
+the path to it, `[[^:mpsc::channel:]]`, and a function with nothing generic
+about it shows one line. A tooltip that would run off the window is moved
+back onto it, and one near the bottom opens above its expression.
+
+A marker has to cover exactly one expression, the name a `let` or a
+parameter binds -- `let mut [[^:b:]]` -- or a function or method name, and
+one that does not fails the build: `[[^:b.deref:]]()` is none of them. An expression inside
 parentheses can be marked with or without them. A marker in a `notation`
 block is an error too, since nothing is compiled to ask, and so is one on a
 hidden line, which would show nothing. In a `shouldFail` block the types are

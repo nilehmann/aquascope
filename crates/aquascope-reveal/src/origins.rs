@@ -1263,6 +1263,7 @@ mod test {
             start,
             end: start + text.len(),
             ty: ty.to_string(),
+            decl: None,
           });
         }
       }

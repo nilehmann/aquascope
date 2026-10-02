@@ -565,6 +565,39 @@
     return d + "Z";
   }
 
+  // Keeps a type tooltip on screen. It is centred under its expression,
+  // which for a long signature -- `thread::spawn`'s, bounds and all -- runs
+  // past the edge of the window, and near the bottom of the window it would
+  // hang below it. The tooltip is a pseudo-element and cannot be measured,
+  // so an invisible copy with the same styles is: the expression is given
+  // the shift that brings the tooltip back inside, and `ty-above` when there
+  // is room for it above but not below.
+  var TY_MARGIN = 8;
+  document.addEventListener("mouseover", function (event) {
+    var ty = event.target.closest && event.target.closest(".ty");
+    if (!ty) {
+      return;
+    }
+    var probe = document.createElement("span");
+    probe.className = "ty-measure";
+    probe.textContent = ty.getAttribute("data-type");
+    ty.appendChild(probe);
+    var size = probe.getBoundingClientRect();
+    var width = size.width;
+    probe.remove();
+
+    var box = ty.getBoundingClientRect();
+    var left = box.left + box.width / 2 - width / 2;
+    var max = window.innerWidth - TY_MARGIN - width;
+    var shift = Math.max(TY_MARGIN, Math.min(left, max)) - left;
+    // Set on the expression itself, never inherited: an expression inside
+    // another would otherwise take its parent's shift.
+    ty.style.setProperty("--ty-shift", shift + "px");
+    // Opened above instead when there is no room for it below.
+    var below = box.bottom + size.height + TY_MARGIN <= window.innerHeight;
+    ty.classList.toggle("ty-above", !below && box.top - size.height > TY_MARGIN);
+  });
+
   // Deck-level reveal options from the markdown front matter. Shallow-merged
   // over the defaults below, except `keyboard`, which is merged key by key so
   // that a deck adding a shortcut does not silently drop n/p.

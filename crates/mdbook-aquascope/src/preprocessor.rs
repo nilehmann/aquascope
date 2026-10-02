@@ -30,6 +30,12 @@ pub struct BlockFailure {
   pub error: anyhow::Error,
 }
 
+/// Part of the cache key of every [`AquascopePreprocessor::query`]. The cache
+/// is keyed on a block's code, so an answer stays cached across a driver
+/// update that changes what the driver reports -- bump this when that happens,
+/// or blocks keep the old answer. 2: function and method names in `types`.
+const QUERY_FORMAT: &str = "2";
+
 pub struct AquascopePreprocessor {
   miri_sysroot: PathBuf,
   target_libdir: PathBuf,
@@ -196,13 +202,13 @@ impl AquascopePreprocessor {
     operation: &str,
     should_fail: bool,
   ) -> Result<serde_json::Value> {
+    let mut config = vec![("queryFormat".to_string(), QUERY_FORMAT.to_string())];
+    if should_fail {
+      config.push(("shouldFail".to_string(), "true".to_string()));
+    }
     let block = AquascopeBlock {
       operations: vec![operation.to_string()],
-      config: if should_fail {
-        vec![("shouldFail".to_string(), "true".to_string())]
-      } else {
-        Vec::new()
-      },
+      config,
       code: code.to_string(),
       annotations: Default::default(),
     };
