@@ -429,11 +429,12 @@ every step:
 
 - right of the lit lines, past the end of the code on every line the card
   spans, and narrowed to fit there -- so it covers no code;
-- if that leaves too little room for a readable card, just under or just
-  over the lit lines, where that covers no code;
-- otherwise hanging under the block, over whatever is below it on the
-  slide -- or, when the slide has no room there, over the fewest faded
-  lines.
+- if that leaves too little room for a readable card -- a narrow or
+  portrait screen -- in the clear space nearest the lit lines, above them
+  before below, as long as it is close enough to read as theirs;
+- otherwise just over the lit lines, or just under them, covering faded
+  ones. Only a block too short to hold the card has it hang under the
+  block, outside the frame.
 
 A note with nothing lit is placed the same way against the block's first
 line, which puts it in the top-right corner. The card is re-placed when the

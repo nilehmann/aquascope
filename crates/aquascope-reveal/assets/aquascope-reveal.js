@@ -452,10 +452,11 @@
   // lines the card spans -- lit or not, so the card covers no code at all. A
   // card wraps to the room there, which changes its height and so the lines
   // it spans, so the fit is found by narrowing a few times. When too little
-  // room is left for a readable card it goes just under or just over the lit
-  // lines where that covers no code, and otherwise under the block. A note
-  // with nothing lit is placed the same way against the first line, ending
-  // up in the top-right corner.
+  // room is left for a readable card it goes in the clear space nearest the
+  // lit lines, above them first; failing that just over them, or just under,
+  // covering faded lines; and only outside the frame when the block is too
+  // short to hold it. A note with nothing lit is placed the same way against
+  // the first line, ending up in the top-right corner.
   //
   // Measured in the page and set in the layer's own pixels, which differ
   // when an ancestor is scaled.
@@ -538,32 +539,60 @@
       return;
     }
 
-    // Just under the lit lines or just over them, if that covers no code;
-    // otherwise hanging under the block, clear of the code, in what is below
-    // it on the slide. Only when the slide has no room there does the card
-    // go over code -- the faded lines next to the lit ones, as few as can be.
+    // Inside the frame, in the clear space nearest the lit lines -- above
+    // them before below -- as long as it is near enough to read as theirs.
     left = Math.max(pr.left + gap, Math.min(lit.left, pr.right - gap - card.width));
-    var covered = function (top) {
-      return rows.filter(function (row) {
-        return row.bottom > top && row.top < top + card.height &&
-          row.right > left && row.left < left + card.width;
-      }).length;
-    };
-    var options = [lit.bottom + gap / 2, lit.top - card.height - gap / 2]
-      .filter(function (top) {
-        return top >= pr.top && top + card.height <= pr.bottom;
+    var h = card.height;
+    var near = 2 * h;
+    var busy = rows
+      .filter(function (row) {
+        return row.right > left && row.left < left + card.width;
       })
-      .sort(function (a, b) {
-        return covered(a) - covered(b);
+      .map(function (row) {
+        return [row.top, row.bottom];
       });
-    var slide = block.closest("section").getBoundingClientRect();
-    var hang = block.getBoundingClientRect().bottom + gap / 2;
-    if (options.length && covered(options[0]) === 0) {
-      top = options[0];
-    } else if (hang + card.height <= Math.min(slide.bottom, window.innerHeight)) {
-      top = hang;
+    busy.push([lit.top, lit.bottom]);
+    busy.sort(function (a, b) {
+      return a[0] - b[0];
+    });
+    var best = null;
+    var consider = function (top, distance) {
+      if (distance <= near && (!best || distance < best.distance)) {
+        best = { top: top, distance: distance };
+      }
+    };
+    var from = pr.top + gap / 2;
+    busy.concat([[pr.bottom - gap / 2, Infinity]]).forEach(function (row) {
+      var to = row[0];
+      if (to - from >= h) {
+        // Above the lit lines: as low as it goes; below: as high.
+        if (to <= lit.top) {
+          var top = Math.min(to, lit.top - gap / 2) - h;
+          if (top >= from) {
+            consider(top, lit.top - (top + h));
+          }
+        } else if (from >= lit.bottom - 1) {
+          var below = Math.max(from, lit.bottom + gap / 2);
+          if (below + h <= to) {
+            consider(below, below - lit.bottom);
+          }
+        }
+      }
+      from = Math.max(from, row[1]);
+    });
+
+    // Otherwise just over the lit lines, or just under them, covering faded
+    // ones; outside the frame only when the block is too short for the card.
+    var over = lit.top - gap / 2 - h;
+    var under = lit.bottom + gap / 2;
+    if (best) {
+      top = best.top;
+    } else if (over >= pr.top + gap / 2) {
+      top = over;
+    } else if (under + h <= pr.bottom - gap / 2) {
+      top = under;
     } else {
-      top = options.length ? options[0] : hang;
+      top = block.getBoundingClientRect().bottom + gap / 2;
     }
     set(left, top);
   }

@@ -525,18 +525,18 @@
  *
  * The strip becomes a layer over the whole block that takes no room and no
  * clicks, and each note a card in it that aquascope-reveal.js places beside
- * what is lit -- right of the lit lines when the block has room there,
- * otherwise just under them -- or, for a note with nothing lit, in the
- * block's top-right corner. No arrow: the card's edge is the highlight's
- * colour, and it sits next to the tint it explains.
+ * what is lit (see aquascope-reveal.js for where). No arrow: the card's
+ * edge is the highlight's colour, and it sits next to the tint it explains.
  *
- * The layer is above the fade and the lit code. */
+ * The layer is above the fade, the lit code and the `shouldFail` crab
+ * (`z-index: 99`), and level with the block's buttons (`100`), which come
+ * after it in the block and so stay above it and clickable. */
 .reveal .ohl-float .ohl-notes,
 .reveal .ohl-float .ohl-notes:has(.ohl-note.on) {
   display: block;
   position: absolute;
   inset: 0;
-  z-index: 3;
+  z-index: 100;
   padding: 0;
   border: 0;
   background: none;
