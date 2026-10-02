@@ -787,38 +787,63 @@
     return d + "Z";
   }
 
-  // Keeps a type tooltip on screen. It is centred under its expression,
-  // which for a long signature -- `thread::spawn`'s, bounds and all -- runs
-  // past the edge of the window, and near the bottom of the window it would
-  // hang below it. The tooltip is a pseudo-element and cannot be measured,
-  // so an invisible copy with the same styles is: the expression is given
-  // the shift that brings the tooltip back inside, and `ty-above` when there
-  // is room for it above but not below.
+  // The type tooltip: one element for the whole deck, fixed over the page,
+  // shown for the innermost `.ty` under the pointer. Being outside the code,
+  // nothing in a block can paint over it (see aquascope-reveal.css).
+  //
+  // It is centred under its expression, moved back inside the window when
+  // that runs past an edge -- a long signature, `thread::spawn`'s bounds and
+  // all, easily does -- and opened above the expression instead when there
+  // is room there but not below.
   var TY_MARGIN = 8;
+  var tip = null;
+
+  function showType(ty) {
+    if (!tip) {
+      tip = document.createElement("div");
+      tip.className = "ty-tip";
+      (document.querySelector(".reveal") || document.body).appendChild(tip);
+    }
+    var style = getComputedStyle(ty);
+    tip.style.fontFamily = style.fontFamily;
+    tip.style.fontSize = 1.25 * parseFloat(style.fontSize) + "px";
+    tip.textContent = ty.getAttribute("data-type");
+    tip.hidden = false;
+
+    var size = tip.getBoundingClientRect();
+    var box = ty.getBoundingClientRect();
+    var gap = 0.3 * parseFloat(tip.style.fontSize);
+    var left = box.left + box.width / 2 - size.width / 2;
+    left = Math.max(
+      TY_MARGIN,
+      Math.min(left, window.innerWidth - TY_MARGIN - size.width)
+    );
+    var top = box.bottom + gap;
+    if (
+      top + size.height + TY_MARGIN > window.innerHeight &&
+      box.top - gap - size.height > TY_MARGIN
+    ) {
+      top = box.top - gap - size.height;
+    }
+    tip.style.left = left + "px";
+    tip.style.top = top + "px";
+  }
+
+  function hideType() {
+    if (tip) {
+      tip.hidden = true;
+    }
+  }
+
   document.addEventListener("mouseover", function (event) {
     var ty = event.target.closest && event.target.closest(".ty");
-    if (!ty) {
-      return;
+    if (ty) {
+      showType(ty);
+    } else {
+      hideType();
     }
-    var probe = document.createElement("span");
-    probe.className = "ty-measure";
-    probe.textContent = ty.getAttribute("data-type");
-    ty.appendChild(probe);
-    var size = probe.getBoundingClientRect();
-    var width = size.width;
-    probe.remove();
-
-    var box = ty.getBoundingClientRect();
-    var left = box.left + box.width / 2 - width / 2;
-    var max = window.innerWidth - TY_MARGIN - width;
-    var shift = Math.max(TY_MARGIN, Math.min(left, max)) - left;
-    // Set on the expression itself, never inherited: an expression inside
-    // another would otherwise take its parent's shift.
-    ty.style.setProperty("--ty-shift", shift + "px");
-    // Opened above instead when there is no room for it below.
-    var below = box.bottom + size.height + TY_MARGIN <= window.innerHeight;
-    ty.classList.toggle("ty-above", !below && box.top - size.height > TY_MARGIN);
   });
+  document.documentElement.addEventListener("mouseleave", hideType);
 
   // Deck-level reveal options from the markdown front matter. Shallow-merged
   // over the defaults below, except `keyboard`, which is merged key by key so
@@ -862,6 +887,7 @@
     });
 
     Reveal.on("slidechanged", function (event) {
+      hideType();
       hydrate(event.currentSlide);
       addRunButtons(event.currentSlide);
       focusHighlights(event.currentSlide);

@@ -367,18 +367,16 @@
  * under the pointer answers: hovering `b` inside `b.deref()` names `b`, not
  * the call.
  *
- * The tooltip hangs below the code, past the block's edge, so a block with
- * one lets it out: the `pre` would scroll it away and the wrapper clip it. A
- * container of the deck's own that clips -- a card with rounded corners, say
- * -- needs the same `overflow: visible` in the deck's stylesheet.
+ * The tooltip is not part of the code. aquascope-reveal.js shows one
+ * `.ty-tip` for the whole deck, fixed over the page and placed against the
+ * expression, so nothing in a block -- a highlight, the fade, a floating
+ * note, the block's own clipping -- can paint over it or cut it off. As a
+ * pseudo-element of the expression it could rise no higher than the
+ * highlight holding it, and Firefox paints a highlight's later lines over
+ * anything hanging from its earlier ones.
  *
  * The colours are the deck's to change: `--ty-hover` behind the expression,
  * `--ty-tip-bg` and `--ty-tip-fg` for the tooltip. */
-.reveal .origins-block:has(.ty),
-.reveal pre.code:has(.ty) {
-  overflow: visible;
-}
-
 .reveal .ty {
   position: relative;
   border-radius: 0.1em;
@@ -389,37 +387,23 @@
   background: var(--ty-hover, hsl(197, 60%, 86%));
 }
 
-/* `.ty-measure` is the same box, built invisibly by aquascope-reveal.js to
- * learn how wide the tooltip will be: centred under its expression, a long
- * signature would run off the screen, and `--ty-shift` moves it back on. */
-.reveal .ty:hover:not(:has(.ty:hover))::after,
-.reveal .ty-measure {
-  content: attr(data-type);
-  position: absolute;
-  top: calc(100% + 0.3em);
-  left: 50%;
-  transform: translateX(calc(-50% + var(--ty-shift, 0px)));
-  z-index: 10;
+/* The font family and size are the code's, set by aquascope-reveal.js from
+ * the expression's: the tooltip is outside the code and cannot inherit them. */
+.reveal .ty-tip {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1000;
   padding: 0.1em 0.5em;
   /* `pre`, not `nowrap`: a function's popover is two lines, its declaration
    * above its signature at this call, and is never wrapped otherwise. */
   white-space: pre;
   text-align: left;
-  font-size: 1.25em;
+  line-height: 1.4;
   color: var(--ty-tip-fg, white);
   background: var(--ty-tip-bg, hsl(197, 40%, 25%));
   border-radius: 0.2em;
   pointer-events: none;
-}
-
-.reveal .ty-measure {
-  visibility: hidden;
-  transform: none;
-}
-
-.reveal .ty.ty-above:hover:not(:has(.ty:hover))::after {
-  top: auto;
-  bottom: calc(100% + 0.3em);
 }
 
 /* Highlights: `[[=:CODE:]]` and `[[=N:CODE:]]` wrap CODE in an `.ohl` span,
@@ -546,8 +530,7 @@
  * block's top-right corner. No arrow: the card's edge is the highlight's
  * colour, and it sits next to the tint it explains.
  *
- * The layer is above the fade and the lit code, but below a lit highlight
- * whose type tooltip is open, which `z-index: 4` lifts over it. */
+ * The layer is above the fade and the lit code. */
 .reveal .ohl-float .ohl-notes,
 .reveal .ohl-float .ohl-notes:has(.ohl-note.on) {
   display: block;
@@ -582,17 +565,8 @@
   display: none;
 }
 
-/* A type tooltip goes over everything a highlight puts in its way. A lit
- * highlight is a stacking context of its own, so a tooltip inside one can
- * rise only within it, and the next lit highlight down -- on the same layer,
- * and later in the page -- would paint over the part hanging below. So the
- * highlight holding the hovered expression comes above the others, and the
- * expression itself above any highlight, which also lifts it clear of the
- * fade while the pointer is on it. */
-.reveal .ohl.on:has(.ty:hover) {
-  z-index: 4;
-}
-
+/* The hovered expression comes clear of the fade while the pointer is on
+ * it, so the code the tooltip is about is never the faded one. */
 .reveal .origins-block:has(.ohl) .ty:hover:not(:has(.ty:hover)) {
   z-index: 5;
 }

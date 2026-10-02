@@ -200,9 +200,10 @@ nightly toolchain and shares their cache (`.aquascope-cache`). A block without
 one is still checked with plain `rustc`.
 
 The rendered expression is a `<span class="ty" data-type="…">`. Its colours
-are `--ty-hover`, `--ty-tip-bg` and `--ty-tip-fg`. The tooltip hangs below the
-code, so a container of the deck's own that clips its contents needs
-`overflow: visible` for it to show.
+are `--ty-hover`, `--ty-tip-bg` and `--ty-tip-fg`. The tooltip is a single
+`div.ty-tip` fixed over the page rather than part of the code, so it shows
+above everything -- highlights, floating notes, the run output -- and no
+container clipping its contents can cut it off.
 
 ### Compiling, and the Run button
 
