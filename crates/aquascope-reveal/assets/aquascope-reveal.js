@@ -374,54 +374,53 @@
     }
   }
 
-  // Moves the highlight in each ```origins block on `slide` to the step the
-  // slide is on. A `[[=N:` highlight is a reveal fragment of its own, so reveal
-  // already marks it `.visible` from step N on; the one lit is the latest of
-  // those, together with any others on the same step. The block's `.ohl-end`
-  // fragment is the step after the last one, from which nothing timed is lit
-  // and the `[[=:` highlights, lit from the start, are lit again.
+  // Lights the highlights in each ```origins block on `slide` for the step
+  // the slide is on. A `[[=N:` highlight is lit on step N and on no other:
+  // any other click -- a `[[+M:` step revealing code, a fragment of prose,
+  // the block's own `.ohl-end` after its last highlight -- leaves the block
+  // unlit, and the `[[=:` highlights, lit from the start, lit again.
   //
-  // The indices are read after reveal has renumbered them, which it does to
-  // every slide's fragments, so they compare in the same order as written.
+  // The step the slide is on is its latest fragment shown, whatever that
+  // fragment belongs to. Indices are read after reveal has renumbered them,
+  // which it does to every slide's fragments, so they compare in the same
+  // order as written.
   function focusHighlights(slide) {
     if (!slide) {
       return;
     }
+    var index = function (el) {
+      return Number(el.getAttribute("data-fragment-index"));
+    };
+    var step = -1;
+    slide.querySelectorAll(".fragment.visible").forEach(function (el) {
+      step = Math.max(step, index(el));
+    });
+
     var blocks = slide.querySelectorAll(".origins-block");
     Array.prototype.forEach.call(blocks, function (block) {
       var all = block.querySelectorAll(".ohl");
       if (all.length === 0) {
         return;
       }
-      var index = function (el) {
-        return Number(el.getAttribute("data-fragment-index"));
-      };
-      var latest = null;
-      var timed = block.querySelectorAll(".ohl.fragment, .ohl-end");
-      Array.prototype.forEach.call(timed, function (el) {
-        if (
-          el.classList.contains("visible") &&
-          (latest === null || index(el) > index(latest))
-        ) {
-          latest = el;
+      var stepping = Array.prototype.some.call(
+        block.querySelectorAll(".ohl.fragment"),
+        function (el) {
+          return index(el) === step;
         }
-      });
-      var stepping = latest !== null && !latest.classList.contains("ohl-end");
+      );
+      // A step's note goes with its highlights, the `[=]` note with the
+      // `[[=:` ones.
+      var lit = function (el) {
+        return el.classList.contains("fragment")
+          ? stepping && index(el) === step
+          : !stepping;
+      };
       Array.prototype.forEach.call(all, function (el) {
-        var lit = el.classList.contains("fragment")
-          ? stepping && index(el) === index(latest)
-          : !stepping;
-        el.classList.toggle("on", lit);
-        frame(el, lit);
+        el.classList.toggle("on", lit(el));
+        frame(el, lit(el));
       });
-      // The callouts follow the same rule: a step's note while its
-      // highlights are lit, the `[=]` note while the `[[=:` ones are.
-      var notes = block.querySelectorAll(".ohl-note");
-      Array.prototype.forEach.call(notes, function (note) {
-        var lit = note.classList.contains("fragment")
-          ? stepping && index(note) === index(latest)
-          : !stepping;
-        note.classList.toggle("on", lit);
+      block.querySelectorAll(".ohl-note").forEach(function (note) {
+        note.classList.toggle("on", lit(note));
       });
     });
   }

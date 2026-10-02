@@ -359,13 +359,13 @@ fn main() {
 ```
 `````
 
-Timed highlights are a walk-through: the focus moves to each step's
-highlights in turn, all the ones sharing a step lit together, and a
-highlight stays lit through clicks that belong to other things on the slide
-until the next one takes over. One click after the last, the block returns to
-full strength; the block adds that click itself if nothing else on the slide
-has it. A `[[=:…:]]` highlight is lit whenever no timed one is -- before the
-first, and again after the last.
+Timed highlights are a walk-through: a `[[=N:…:]]` highlight is lit on step
+`N` and on no other, all the ones sharing a step lit together. A click that
+lights no highlight -- a `[[+M:…:]]` step revealing code, a fragment of prose
+-- returns the block to full strength, and so does the click after the last
+highlight, which the block adds itself if nothing else on the slide has it.
+A `[[=:…:]]` highlight is lit whenever no timed one is -- before the
+first, on a click that lights none, and after the last.
 
 It is a frame like the others: it nests with them, a line holding only the
 marker folds into its neighbour, and it is erased from the program that is
