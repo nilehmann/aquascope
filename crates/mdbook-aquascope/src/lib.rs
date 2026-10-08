@@ -7,4 +7,4 @@ mod permissions;
 mod preprocessor;
 
 pub use cache::CACHE_PATH;
-pub use preprocessor::{AquascopePreprocessor, BlockFailure};
+pub use preprocessor::{AquascopePreprocessor, BlockFailure, Dependencies};

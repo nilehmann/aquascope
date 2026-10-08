@@ -135,7 +135,7 @@ impl<'tcx> TypeCollector<'tcx> {
     let Some(ty) = ty else {
       return;
     };
-    self.push(span, tidy(&with_forced_trimmed_paths!(ty.to_string())), None);
+    self.push(span, show(self.tcx, ty), None);
   }
 
   /// A function at `span`, called with `args`: its signature as instantiated
@@ -155,7 +155,7 @@ impl<'tcx> TypeCollector<'tcx> {
     let sig = tcx.instantiate_bound_regions_with_erased(sig);
     let names = tcx.fn_arg_idents(def_id);
     let is_method = tcx.opt_associated_item(def_id).is_some_and(|i| i.is_method());
-    let print = |ty: Ty<'tcx>| tidy(&with_forced_trimmed_paths!(ty.to_string()));
+    let print = |ty: Ty<'tcx>| show(tcx, ty);
 
     let params: Vec<String> = sig
       .inputs()
@@ -278,6 +278,31 @@ impl<'tcx> TypeCollector<'tcx> {
       decl,
     });
   }
+}
+
+/// `ty` as a slide shows it: rustc's own printing, paths trimmed, with an
+/// async block written as what it is to the reader -- `impl Future<Output =
+/// T>` -- rather than as rustc names its type, `{async block@main.rs:6:20:
+/// 9:10}`. An `async fn`'s future already prints that way, being an opaque
+/// type; a block's is a coroutine, whose return type is the `Output`. A block
+/// nested in another's output is rewritten the same way, and whatever is left
+/// -- closures, other coroutines -- loses its location in [`tidy`].
+fn show<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> String {
+  let mut printed = with_forced_trimmed_paths!(ty.to_string());
+  for arg in ty.walk() {
+    let Some(inner) = arg.as_type() else {
+      continue;
+    };
+    if let ty::Coroutine(def_id, args) = *inner.kind()
+      && tcx.coroutine_is_async(def_id)
+    {
+      let name = with_forced_trimmed_paths!(inner.to_string());
+      let output = show(tcx, args.as_coroutine().return_ty());
+      printed =
+        printed.replace(&name, &format!("impl Future<Output = {output}>"));
+    }
+  }
+  tidy(&printed)
 }
 
 /// `{closure@src/main.rs:5:19: 5:21}` as `{closure}`: where a closure was

@@ -41,6 +41,8 @@ use std::{
 
 use serde::Deserialize;
 
+use crate::deps::Deps;
+
 /// A snippet that loops forever should not survive the slide. Long enough that
 /// nothing a lecture demonstrates hits it by accident.
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -67,9 +69,9 @@ struct Request {
 }
 
 /// Answers one POST to `/evaluate.json`, returning the response body.
-pub fn evaluate(body: &[u8]) -> Vec<u8> {
+pub fn evaluate(body: &[u8], deps: &Deps) -> Vec<u8> {
   let mut result = String::new();
-  run(body, &mut |html| {
+  run(body, deps, &mut |html| {
     result.push_str(html);
     true
   });
@@ -85,17 +87,17 @@ pub fn evaluate(body: &[u8]) -> Vec<u8> {
 /// [`evaluate`], its output passed to `sink` as it is produced -- one line of
 /// JSON per piece, `{"html": …}`, so that the browser can tell where one
 /// piece ends however the network splits them.
-pub fn stream(body: &[u8], sink: &mut dyn FnMut(&[u8]) -> bool) {
-  run(body, &mut |html| {
+pub fn stream(body: &[u8], deps: &Deps, sink: &mut dyn FnMut(&[u8]) -> bool) {
+  run(body, deps, &mut |html| {
     let mut line = serde_json::json!({ "html": html }).to_string().into_bytes();
     line.push(b'\n');
     sink(&line)
   });
 }
 
-fn run(body: &[u8], sink: Sink) {
+fn run(body: &[u8], deps: &Deps, sink: Sink) {
   match serde_json::from_slice::<Request>(body) {
-    Ok(request) => compile_and_run(&request, sink),
+    Ok(request) => compile_and_run(&request, deps, sink),
     Err(e) => {
       sink(&plain(&format!("Malformed request: {e}")));
     }
@@ -118,8 +120,9 @@ fn defines_main(code: &str) -> bool {
 /// a terminal to show as it is.
 ///
 /// `--emit=metadata` stops before codegen, which is what keeps this cheap
-/// enough to run over every block on every build without a cache.
-pub fn check(code: &str) -> Result<(), String> {
+/// enough to run over every block on every build without a cache. `deps` are
+/// the deck's external crates, already built; see [`crate::deps`].
+pub fn check(code: &str, deps: &Deps) -> Result<(), String> {
   let dir = scratch_dir().map_err(|e| format!("no build directory: {e}"))?;
   let source = dir.join(SOURCE);
   let result = (|| {
@@ -142,6 +145,7 @@ pub fn check(code: &str) -> Result<(), String> {
       // A slide shows the code that makes its point and nothing else, so
       // unused names are the rule rather than a mistake.
       .arg("unused")
+      .args(deps.rustc_args())
       .arg(SOURCE)
       .output()
       .map_err(|e| {
@@ -167,7 +171,7 @@ pub fn check(code: &str) -> Result<(), String> {
 /// stream -- which stops the program rather than running it out for no one.
 type Sink<'a> = &'a mut dyn FnMut(&str) -> bool;
 
-fn compile_and_run(request: &Request, sink: Sink) {
+fn compile_and_run(request: &Request, deps: &Deps, sink: Sink) {
   let dir = match scratch_dir() {
     Ok(dir) => dir,
     Err(e) => {
@@ -176,14 +180,14 @@ fn compile_and_run(request: &Request, sink: Sink) {
     }
   };
 
-  build_in(&dir, request, sink);
+  build_in(&dir, request, deps, sink);
 
   // Nothing can be done about a failed cleanup, and reporting it would bury
   // the program's own output.
   let _ = fs::remove_dir_all(&dir);
 }
 
-fn build_in(dir: &Path, request: &Request, sink: Sink) {
+fn build_in(dir: &Path, request: &Request, deps: &Deps, sink: Sink) {
   let source = dir.join(SOURCE);
   if let Err(e) = fs::write(&source, &request.code) {
     sink(&plain(&format!("Could not write {}: {e}", source.display())));
@@ -205,6 +209,7 @@ fn build_in(dir: &Path, request: &Request, sink: Sink) {
     // rustc suppresses colour when stderr is not a terminal, which a pipe
     // never is. Ask for it explicitly and turn it into spans below.
     .arg("--color=always")
+    .args(deps.rustc_args())
     .arg("-o")
     .arg(BINARY)
     .arg(SOURCE)
@@ -422,7 +427,12 @@ pub fn strip_ansi(s: &str) -> String {
 
 #[cfg(test)]
 mod test {
-  use super::{evaluate, opt_level, strip_ansi};
+  use super::{opt_level, strip_ansi};
+  use crate::deps::Deps;
+
+  fn evaluate(body: &[u8]) -> Vec<u8> {
+    super::evaluate(body, &Deps::default())
+  }
 
   fn result_of(body: &str) -> String {
     let response = evaluate(body.as_bytes());
@@ -478,7 +488,7 @@ mod test {
     // the program is done -- which is the whole point of streaming.
     let body = r#"{"code":"fn main() { println!(\"a\"); std::thread::sleep(std::time::Duration::from_millis(600)); println!(\"b\"); }"}"#;
     let mut pieces: Vec<(std::time::Instant, String)> = Vec::new();
-    super::stream(body.as_bytes(), &mut |line| {
+    super::stream(body.as_bytes(), &Deps::default(), &mut |line| {
       let json: serde_json::Value = serde_json::from_slice(line).unwrap();
       pieces.push((
         std::time::Instant::now(),
@@ -497,7 +507,7 @@ mod test {
     // run into the timeout, is killed then and there.
     let body = r#"{"code":"fn main() { loop { println!(\"x\"); std::thread::sleep(std::time::Duration::from_millis(10)); } }"}"#;
     let start = std::time::Instant::now();
-    super::stream(body.as_bytes(), &mut |_| false);
+    super::stream(body.as_bytes(), &Deps::default(), &mut |_| false);
     assert!(start.elapsed() < std::time::Duration::from_secs(5));
   }
 

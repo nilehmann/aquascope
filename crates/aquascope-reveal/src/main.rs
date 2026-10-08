@@ -16,6 +16,7 @@ use mdbook_aquascope::AquascopePreprocessor;
 
 mod attributes;
 mod deck;
+mod deps;
 mod frontmatter;
 mod lint;
 mod origins;
@@ -140,7 +141,11 @@ fn copy_tree(src: &PathBuf, dst: &PathBuf) -> Result<()> {
   Ok(())
 }
 
-fn build(args: &Args, preprocessor: &mut AquascopePreprocessor) -> Result<()> {
+fn build(
+  args: &Args,
+  preprocessor: &mut AquascopePreprocessor,
+  shared_deps: &deps::Shared,
+) -> Result<()> {
   let source = fs::read_to_string(&args.input)
     .with_context(|| format!("reading {}", args.input.display()))?;
 
@@ -155,6 +160,25 @@ fn build(args: &Args, preprocessor: &mut AquascopePreprocessor) -> Result<()> {
   // computed against the same slice they are applied to.
   let (front, body) = frontmatter::split(&source)
     .with_context(|| format!("in {}", args.input.display()))?;
+
+  // Before any block is compiled, since a block may use them. A relative
+  // `path` dependency is relative to the deck, wherever the build runs from.
+  let deck_dir = fs::canonicalize(&args.input)
+    .with_context(|| format!("resolving {}", args.input.display()))?
+    .parent()
+    .map(Path::to_path_buf)
+    .unwrap_or_default();
+  let deps = deps::build(&front.dependencies, &deck_dir)
+    .with_context(|| format!("in {}", args.input.display()))?;
+  if !deps.is_empty() && args.serve.is_none() {
+    eprintln!(
+      "warning: {}: without --serve, Run posts to the Rust playground, which \
+       has only its own selection of crates, not the deck's dependencies",
+      args.input.display()
+    );
+  }
+  *shared_deps.write().unwrap() = deps.clone();
+  preprocessor.set_dependencies(deps.aquascope());
 
   // Both passes return byte ranges into `body` and never overlap: one
   // claims ```aquascope fences, the other ```origins fences.
@@ -171,7 +195,7 @@ fn build(args: &Args, preprocessor: &mut AquascopePreprocessor) -> Result<()> {
     .into_iter()
     .map(|f| {
       let line = first_body_line + body[.. f.range.start].matches('\n').count();
-      aquascope_problem(f, &format!("{file}:{line}"))
+      aquascope_problem(f, &format!("{file}:{line}"), &deps)
     })
     .collect();
 
@@ -183,7 +207,7 @@ fn build(args: &Args, preprocessor: &mut AquascopePreprocessor) -> Result<()> {
       // on a slide is found here rather than in the lecture. A block whose
       // failure is the point says `shouldFail`; one that is not a program
       // says `notation`.
-      problems.extend(origins::check(&programs, &file));
+      problems.extend(origins::check(&programs, &file, &deps));
     }
     Err(e) => problems.push(overlay::Problem::general(
       &e.context(format!("in {file}")),
@@ -337,9 +361,10 @@ fn build(args: &Args, preprocessor: &mut AquascopePreprocessor) -> Result<()> {
 fn aquascope_problem(
   failure: mdbook_aquascope::BlockFailure,
   location: &str,
+  deps: &deps::Deps,
 ) -> overlay::Problem {
   let (message, diagnostic) =
-    match (run::check(&failure.code), failure.should_fail) {
+    match (run::check(&failure.code, deps), failure.should_fail) {
       (Err(e), false) => ("the ```aquascope block does not compile", Some(e)),
       (Ok(()), true) => (
         "Aquascope failed on this block, which is marked shouldFail but \
@@ -417,10 +442,11 @@ fn fingerprint(args: &Args) -> Vec<(PathBuf, Option<SystemTime>)> {
 fn main() -> Result<()> {
   let args = Args::parse();
   let mut preprocessor = AquascopePreprocessor::new()?;
+  let deps = deps::Shared::default();
 
   // Without --watch a failed build is fatal. With it, even the first failure
   // only prints and goes to the overlay, and the watcher keeps running.
-  let result = build(&args, &mut preprocessor);
+  let result = build(&args, &mut preprocessor, &deps);
   if args.watch {
     report(&args, result)?;
   } else {
@@ -428,7 +454,7 @@ fn main() -> Result<()> {
   }
 
   if let Some(port) = args.serve {
-    serve::spawn(args.out_dir.clone(), port)?;
+    serve::spawn(args.out_dir.clone(), port, deps.clone())?;
   }
 
   if !args.watch {
@@ -449,7 +475,7 @@ fn main() -> Result<()> {
     }
     last = current;
 
-    let result = build(&args, &mut preprocessor);
+    let result = build(&args, &mut preprocessor, &deps);
     if let Err(e) = report(&args, result) {
       eprintln!("Could not report the build: {e:#}");
     }

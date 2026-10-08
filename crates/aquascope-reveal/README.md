@@ -35,7 +35,8 @@ revealOptions:
 The block is recognised only when the file *starts* with `---`; anywhere else
 that line is a slide separator. `--title` and `--theme` override it.
 `notes` is where ```` ```origins ```` blocks show their
-[callouts](#callouts): `strip` (the default) or `float`.
+[callouts](#callouts): `strip` (the default) or `float`. `dependencies` names
+the [external crates](#external-crates) the blocks may use.
 
 Unknown keys are an error rather than being ignored, as are options the rest of
 the pipeline depends on: `disableLayout` (Aquascope's arrows are drawn in
@@ -251,6 +252,50 @@ program that is still running. A deck hosted elsewhere posts to the
 playground, which only answers once the program has finished, and the
 editor's Run button in ```` ```aquascope ```` blocks does the same either
 way.
+
+### External crates
+
+`dependencies` in the front matter lists crates the blocks may use, each
+written as Cargo.toml would declare it, in YAML:
+
+```markdown
+---
+dependencies:
+  trpl: "0.2"
+  tokio: { version: "1", features: [full] }
+  my-helpers: { path: ../helpers }
+---
+```
+
+They are built once, by `cargo build`, into a crate of their own under
+`$XDG_CACHE_HOME/aquascope-reveal/deps/` (`~/.cache` when that is unset), and
+both the build-time check and the Run button under `--serve` compile each
+block with `--extern` for every dependency. A block then says `trpl::block_on`
+or `use tokio::sync::mpsc;` as a program in a cargo project would, with no
+`extern crate`. A relative `path` is relative to the deck.
+
+cargo runs on every build, so it prints its progress the first time -- tokio
+takes a while -- and is a no-op afterwards, needing no network once the
+crates are downloaded. That crate's directory is named by a hash of the
+dependencies and of `rustc -vV`, so changing either builds afresh rather than
+loading rlibs the compiler cannot read; old directories are not cleaned up.
+
+Aquascope sees them too: ```` ```aquascope ```` blocks and `[[^:…:]]` types
+compile each block as a cargo project of its own on Aquascope's nightly, and
+that project gets the same `[dependencies]` and Cargo.lock. The crates are
+built for it a second time, with that nightly and against Miri's sysroot,
+which is what the block is compiled against: an rlib built for any other
+`std` does not load. They share one target directory, `target-aquascope/`
+beside the other build, so that happens once and not once per block. Answers
+are cached under the block and the dependencies, so a deck without any keeps
+its cache as it was.
+
+Without `--serve`, Run posts to the Rust playground, which has [its own
+selection of crates][playground-crates] -- many of the popular ones, but
+not necessarily a deck's. The build warns when a deck has dependencies and is
+not being served.
+
+[playground-crates]: https://github.com/rust-lang/rust-playground/blob/main/compiler/base/Cargo.toml
 
 ### Hidden lines
 

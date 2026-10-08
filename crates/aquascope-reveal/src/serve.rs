@@ -20,7 +20,7 @@ use std::{
 
 use anyhow::{Context, Result};
 
-use crate::run;
+use crate::{deps, run};
 
 /// Where the editor posts snippets. The path is the playground's, because the
 /// editor's default is the playground and it only varies the origin.
@@ -33,11 +33,12 @@ pub const STREAM_ENDPOINT: &str = "/run-stream";
 /// A snippet is a slide's worth of code. Anything larger is not a snippet.
 const MAX_BODY: usize = 1 << 20;
 
-/// Binds the port and serves `root` on a background thread.
+/// Binds the port and serves `root` on a background thread. Runs compile
+/// against `deps`, the deck's external crates as of the latest build.
 ///
 /// Bound to loopback only: a lecture deck has no business being reachable from
 /// the rest of the network.
-pub fn spawn(root: PathBuf, port: u16) -> Result<()> {
+pub fn spawn(root: PathBuf, port: u16, deps: deps::Shared) -> Result<()> {
   let listener = TcpListener::bind(("127.0.0.1", port))
     .with_context(|| format!("binding 127.0.0.1:{port}"))?;
 
@@ -49,8 +50,9 @@ pub fn spawn(root: PathBuf, port: u16) -> Result<()> {
         continue;
       };
       let root = root.clone();
+      let deps = deps.clone();
       thread::spawn(move || {
-        if let Err(e) = handle(stream, &root) {
+        if let Err(e) = handle(stream, &root, &deps) {
           // A browser closing a connection mid-response is routine.
           if e.kind() != std::io::ErrorKind::BrokenPipe {
             eprintln!("serve: {e}");
@@ -63,7 +65,11 @@ pub fn spawn(root: PathBuf, port: u16) -> Result<()> {
   Ok(())
 }
 
-fn handle(mut stream: TcpStream, root: &Path) -> std::io::Result<()> {
+fn handle(
+  mut stream: TcpStream,
+  root: &Path,
+  deps: &deps::Shared,
+) -> std::io::Result<()> {
   let mut reader = BufReader::new(stream.try_clone()?);
   let mut request_line = String::new();
   reader.read_line(&mut request_line)?;
@@ -73,7 +79,7 @@ fn handle(mut stream: TcpStream, root: &Path) -> std::io::Result<()> {
   let target = parts.next().unwrap_or("/");
 
   if method == "POST" {
-    return post(&mut stream, &mut reader, target);
+    return post(&mut stream, &mut reader, target, deps);
   }
 
   if method != "GET" && method != "HEAD" {
@@ -104,6 +110,7 @@ fn post(
   stream: &mut TcpStream,
   reader: &mut BufReader<TcpStream>,
   target: &str,
+  deps: &deps::Shared,
 ) -> std::io::Result<()> {
   let path = target.split(['?', '#']).next().unwrap_or("/");
   let length = content_length(reader)?;
@@ -119,11 +126,13 @@ fn post(
     return respond(stream, 413, "text/plain", b"body too large", false);
   };
 
+  // A copy, so a rebuild can replace the deck's crates while this one runs.
+  let deps = deps.read().unwrap().clone();
   if path == STREAM_ENDPOINT {
-    return stream_run(stream, &body);
+    return stream_run(stream, &body, &deps);
   }
 
-  let json = run::evaluate(&body);
+  let json = run::evaluate(&body, &deps);
   respond(stream, 200, "application/json; charset=utf-8", &json, false)
 }
 
@@ -132,7 +141,11 @@ fn post(
 /// close` already promises; each piece is flushed as it is written, so it
 /// reaches the browser at once. A write that fails means the browser has gone
 /// -- the slide was left, or Run pressed again -- and stops the program.
-fn stream_run(stream: &mut TcpStream, body: &[u8]) -> std::io::Result<()> {
+fn stream_run(
+  stream: &mut TcpStream,
+  body: &[u8],
+  deps: &deps::Deps,
+) -> std::io::Result<()> {
   write!(
     stream,
     "HTTP/1.1 200 OK\r\n\
@@ -141,7 +154,7 @@ fn stream_run(stream: &mut TcpStream, body: &[u8]) -> std::io::Result<()> {
      Connection: close\r\n\r\n"
   )?;
   stream.flush()?;
-  run::stream(body, &mut |line| {
+  run::stream(body, deps, &mut |line| {
     stream.write_all(line).and_then(|()| stream.flush()).is_ok()
   });
   Ok(())

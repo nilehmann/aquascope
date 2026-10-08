@@ -1262,7 +1262,11 @@ pub fn replacements(
 /// to prove it: a typo on a slide is otherwise found in the lecture. The two
 /// escapes say which kind of not-compiling a block means -- `shouldFail` for a
 /// block whose error is the point, `notation` for one that is not a program.
-pub fn check(programs: &[Program], file: &str) -> Vec<Problem> {
+pub fn check(
+  programs: &[Program],
+  file: &str,
+  deps: &crate::deps::Deps,
+) -> Vec<Problem> {
   let mut problems = Vec::new();
   for p in programs {
     let problem = |message: &str, diagnostic| Problem {
@@ -1271,7 +1275,7 @@ pub fn check(programs: &[Program], file: &str) -> Vec<Problem> {
       diagnostic,
       details: None,
     };
-    match (crate::run::check(&p.code), p.should_fail) {
+    match (crate::run::check(&p.code, deps), p.should_fail) {
       (Ok(()), false) | (Err(_), true) => {}
       (Ok(()), true) => problems.push(problem(
         "the ```origins block is marked shouldFail but compiles",
@@ -1746,8 +1750,8 @@ mod test {
       should_fail: true,
     };
 
-    assert!(check(&[good, expected], "d.md").is_empty());
-    let problems = check(&[bad, surprise], "d.md");
+    assert!(check(&[good, expected], "d.md", &Default::default()).is_empty());
+    let problems = check(&[bad, surprise], "d.md", &Default::default());
     assert_eq!(problems.len(), 2, "{problems:?}");
     assert_eq!(problems[0].location.as_deref(), Some("d.md:2"));
     assert!(problems[0].message.contains("does not compile"));
@@ -1766,7 +1770,7 @@ mod test {
       line: 1,
       code: "fn helper() {}\nfn main() { let x = 1; }".into(),
       should_fail: false,
-    }], "d.md");
+    }], "d.md", &Default::default());
     assert!(problems.is_empty(), "{problems:?}");
   }
 

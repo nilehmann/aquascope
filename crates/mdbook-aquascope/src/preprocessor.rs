@@ -10,7 +10,9 @@ use std::{
 };
 
 use anyhow::{bail, Result};
-use aquascope_workspace_utils::{miri_sysroot, run_and_get_output, rustc};
+use aquascope_workspace_utils::{
+  miri_sysroot, run_and_get_output, rustc, toolchain,
+};
 use mdbook_preprocessor_utils::HtmlElementBuilder;
 use rayon::prelude::*;
 use tempfile::tempdir;
@@ -34,12 +36,31 @@ pub struct BlockFailure {
 /// is keyed on a block's code, so an answer stays cached across a driver
 /// update that changes what the driver reports -- bump this when that happens,
 /// or blocks keep the old answer. 2: function and method names in `types`.
-const QUERY_FORMAT: &str = "2";
+/// 3: async blocks as `impl Future<Output = T>`.
+const QUERY_FORMAT: &str = "3";
+
+/// External crates a block's program may use, for a tool whose blocks have
+/// dependencies -- aquascope-reveal's front matter, say.
+#[derive(Debug, Clone)]
+pub struct Dependencies {
+  /// Lines for the `[dependencies]` table of each block's Cargo.toml.
+  pub table: String,
+  /// A Cargo.lock that already resolves `table`, copied into each block's
+  /// project so cargo has nothing new to resolve and needs no network.
+  pub lockfile: Option<PathBuf>,
+  /// Shared by every block, so the crates are compiled once rather than once
+  /// per block.
+  pub target_dir: PathBuf,
+}
 
 pub struct AquascopePreprocessor {
   miri_sysroot: PathBuf,
   target_libdir: PathBuf,
   cache: RwLock<Cache<AquascopeBlock, String>>,
+  dependencies: Option<Dependencies>,
+  /// The toolchain's host triple, for building dependencies; see
+  /// [`Self::run_aquascope`].
+  host: String,
 }
 
 impl AquascopePreprocessor {
@@ -47,16 +68,44 @@ impl AquascopePreprocessor {
     let miri_sysroot = miri_sysroot()?;
     let rustc = rustc()?;
     let output = run_and_get_output(
-      Command::new(rustc).args(["--print", "target-libdir"]),
+      Command::new(&rustc).args(["--print", "target-libdir"]),
     )?;
     let target_libdir = PathBuf::from(output);
+    let version = run_and_get_output(Command::new(&rustc).arg("-vV"))?;
+    let host = version
+      .lines()
+      .find_map(|line| line.strip_prefix("host: "))
+      .unwrap_or_default()
+      .to_string();
 
     let cache = RwLock::new(Cache::load()?);
     Ok(AquascopePreprocessor {
       miri_sysroot,
       target_libdir,
       cache,
+      dependencies: None,
+      host,
     })
+  }
+
+  /// Sets the crates later blocks may use. `None`, the default, is a block
+  /// project with no dependencies.
+  pub fn set_dependencies(&mut self, dependencies: Option<Dependencies>) {
+    self.dependencies = dependencies;
+  }
+
+  /// What a block's answer is cached under: the block itself, and the
+  /// dependencies it was compiled with when there are any. Left alone
+  /// without them, so that answers cached before dependencies existed are
+  /// still found.
+  fn cache_key(&self, block: &AquascopeBlock) -> AquascopeBlock {
+    let mut key = block.clone();
+    if let Some(deps) = &self.dependencies {
+      key
+        .config
+        .push(("dependencies".to_string(), deps.table.clone()));
+    }
+    key
   }
 
   /// Runs cargo-aquascope on code from a given Aquascope block.
@@ -77,6 +126,21 @@ impl AquascopePreprocessor {
 
     fs::write(root.join("example/src/main.rs"), &block.code)?;
 
+    // `cargo new` ends the manifest with an empty `[dependencies]`, so the
+    // table's lines can simply follow it.
+    if let Some(deps) = &self.dependencies {
+      let manifest = root.join("example/Cargo.toml");
+      let mut contents = fs::read_to_string(&manifest)?;
+      if !contents.trim_end().ends_with("[dependencies]") {
+        contents.push_str("\n[dependencies]\n");
+      }
+      contents.push_str(&deps.table);
+      fs::write(&manifest, contents)?;
+      if let Some(lockfile) = &deps.lockfile {
+        fs::copy(lockfile, root.join("example/Cargo.lock"))?;
+      }
+    }
+
     let mut responses = HashMap::new();
     for operation in &block.operations {
       let mut cmd = Command::new("cargo");
@@ -88,6 +152,28 @@ impl AquascopePreprocessor {
         .env("LD_LIBRARY_PATH", &self.target_libdir)
         .env("RUST_BACKTRACE", "1")
         .current_dir(root.join("example"));
+      // The block is compiled against Miri's sysroot, and a crate it uses
+      // has to have been compiled by the same rustc against the same `std`,
+      // or the driver cannot load it -- and since the driver's diagnostics
+      // are silenced, the block just comes back with no types. So cargo is
+      // pinned to the driver's toolchain (it would otherwise take the
+      // temp directory's default, stable usually), and the dependencies get
+      // Miri's sysroot too. Only the target's: build scripts and proc macros
+      // are linked and run, which a MIR-only sysroot cannot do, and naming
+      // the host as an explicit target is what keeps RUSTFLAGS off them.
+      if let Some(deps) = &self.dependencies {
+        cmd.env("CARGO_TARGET_DIR", &deps.target_dir);
+        if let Ok(toolchain) = toolchain() {
+          cmd.env("RUSTUP_TOOLCHAIN", toolchain);
+        }
+        if !self.host.is_empty() {
+          let mut flags = std::ffi::OsString::from("--sysroot\x1f");
+          flags.push(&self.miri_sysroot);
+          cmd
+            .env("CARGO_BUILD_TARGET", &self.host)
+            .env("CARGO_ENCODED_RUSTFLAGS", flags);
+        }
+      }
 
       let should_fail = block.config.iter().any(|(k, _)| k == "shouldFail");
       if should_fail {
@@ -147,19 +233,16 @@ impl AquascopePreprocessor {
 
   /// Get the HTML output for an Aquascope block
   fn process_code(&self, block: AquascopeBlock) -> Result<String> {
+    let key = self.cache_key(&block);
     let cached_response = {
       let cache = self.cache.read().unwrap();
-      cache.get(&block).cloned()
+      cache.get(&key).cloned()
     };
     let response_str = match cached_response {
       Some(response) => response,
       None => {
         let response = self.run_aquascope(&block)?;
-        self
-          .cache
-          .write()
-          .unwrap()
-          .set(block.clone(), response.clone());
+        self.cache.write().unwrap().set(key, response.clone());
         response
       }
     };
@@ -212,12 +295,13 @@ impl AquascopePreprocessor {
       code: code.to_string(),
       annotations: Default::default(),
     };
-    let cached = self.cache.read().unwrap().get(&block).cloned();
+    let key = self.cache_key(&block);
+    let cached = self.cache.read().unwrap().get(&key).cloned();
     let response = match cached {
       Some(response) => response,
       None => {
         let response = self.run_aquascope(&block)?;
-        self.cache.write().unwrap().set(block, response.clone());
+        self.cache.write().unwrap().set(key, response.clone());
         response
       }
     };

@@ -49,6 +49,10 @@ pub struct FrontMatter {
   /// Merged into the object passed to `Reveal.initialize`.
   #[serde(default)]
   pub reveal_options: Map<String, Value>,
+  /// External crates the blocks may use, each as Cargo.toml would declare
+  /// it. See [`crate::deps`].
+  #[serde(default)]
+  pub dependencies: Map<String, Value>,
 }
 
 impl FrontMatter {
