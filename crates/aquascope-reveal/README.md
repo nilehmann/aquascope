@@ -502,9 +502,13 @@ every step:
 
 - right of the lit lines, past the end of the code on every line the card
   spans, and narrowed to fit there -- so it covers no code;
-- if that leaves too little room for a readable card -- a narrow or
-  portrait screen -- in the clear space nearest the lit lines, above them
-  before below, as long as it is close enough to read as theirs;
+- if that leaves too little room for a readable card -- a zoomed-in browser,
+  or a long line among those the card spans -- still right of the lit code,
+  past only the lit code, covering the faded code to its right: a card that
+  leaves its row reads as a note on the lines it lands on;
+- if the lit code reaches too near the right edge for that, in the clear
+  space nearest the lit lines, above them before below, as long as it is
+  close enough to read as theirs;
 - otherwise just over the lit lines, or just under them, covering faded
   ones. Only a block too short to hold the card has it hang under the
   block, outside the frame.

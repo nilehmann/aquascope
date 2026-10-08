@@ -651,6 +651,10 @@
     });
   }
 
+  // The narrowest a card is made to fit beside the code, in gaps (0.6em of
+  // the code's font): about 11em, four or five words a line.
+  var MIN_ROOM = 18;
+
   // Places a floating note's card beside what is lit with it, inside the
   // code's frame.
   //
@@ -658,8 +662,10 @@
   // lines the card spans -- lit or not, so the card covers no code at all. A
   // card wraps to the room there, which changes its height and so the lines
   // it spans, so the fit is found by narrowing a few times. When too little
-  // room is left for a readable card it goes in the clear space nearest the
-  // lit lines, above them first; failing that just over them, or just under,
+  // room is left for a readable card it stays right of the lit code,
+  // covering the faded code past it; failing that -- the lit code reaches
+  // the right edge -- it goes in the clear space nearest the lit lines,
+  // above them first; failing that just over them, or just under,
   // covering faded lines; and only outside the frame when the block is too
   // short to hold it. A note with nothing lit is placed the same way against
   // the first line, ending up in the top-right corner.
@@ -727,7 +733,7 @@
       }
       left = end + 2 * gap;
       var room = pr.right - gap - left;
-      fits = room >= 25 * gap;
+      fits = room >= MIN_ROOM * gap;
       if (!fits) {
         break;
       }
@@ -737,6 +743,25 @@
     if (fits) {
       set(left, top);
       return;
+    }
+
+    // Still right of the lit lines, but past only the lit code: the card
+    // covers faded code to their right rather than leaving their row. A
+    // zoomed-in browser, or one long line among the lines the card spans,
+    // leaves no room past all of them, and a card moved above or below what
+    // it explains reads as a note on the lines it lands on.
+    if (lit) {
+      left = lit.right + 2 * gap;
+      var room = Math.min(pr.right - gap - left, 0.46 * pr.width);
+      if (room >= MIN_ROOM * gap) {
+        note.style.maxWidth = room / scale + "px";
+        height = note.getBoundingClientRect().height;
+        set(
+          left,
+          Math.max(pr.top + gap / 2, Math.min(lit.top, pr.bottom - height - gap / 2))
+        );
+        return;
+      }
     }
     note.style.maxWidth = "";
     var card = note.getBoundingClientRect();
