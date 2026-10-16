@@ -9,7 +9,7 @@ include = [
   "src/**/*",
   "assets/**/*",
   "Cargo.toml",
-  "js/**/*"
+  "js/**/*",
 ]
 repository = "https://github.com/cognitive-engineering-lab/aquascope"
 
@@ -31,6 +31,10 @@ ra-ap-rustc_lexer = "=0.174.0"
 # Renders rustc's coloured diagnostics into the slide. Chosen for
 # `four_bit_var_prefix`, which emits CSS variables a deck can restyle.
 ansi-to-html = "0.2.3"
+# Slims stylesheets for `--dist single`, and the vendored font stylesheets
+# in build.rs; see src/stylesheet.rs. Pinned exactly, being a pre-release.
+lightningcss = { version = "=1.0.0-alpha.72", default-features = false }
 
 [build-dependencies]
 anyhow = { workspace = true }
+lightningcss = { version = "=1.0.0-alpha.72", default-features = false }

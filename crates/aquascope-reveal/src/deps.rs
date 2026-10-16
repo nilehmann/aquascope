@@ -260,7 +260,7 @@ fn crate_dir(cache: &Path, manifest: &str) -> Result<PathBuf> {
   )
 }
 
-fn cache_root() -> PathBuf {
+pub(crate) fn cache_root() -> PathBuf {
   env::var_os("XDG_CACHE_HOME")
     .filter(|dir| !dir.is_empty())
     .map(PathBuf::from)

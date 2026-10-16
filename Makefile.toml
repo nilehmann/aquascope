@@ -29,7 +29,7 @@ cp crates/**/bindings/* frontend/packages/aquascope-editor/src/bindings
 [tasks.install-aquascope]
 dependencies = ["init-bindings"]
 script = """
-cd frontend && depot build && cd ..
+cd frontend && depot build --release && cd ..
 cargo miri setup
 cargo install --path crates/aquascope_front --locked
 """

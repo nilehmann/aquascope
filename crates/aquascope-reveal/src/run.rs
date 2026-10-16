@@ -190,7 +190,10 @@ fn compile_and_run(request: &Request, deps: &Deps, sink: Sink) {
 fn build_in(dir: &Path, request: &Request, deps: &Deps, sink: Sink) {
   let source = dir.join(SOURCE);
   if let Err(e) = fs::write(&source, &request.code) {
-    sink(&plain(&format!("Could not write {}: {e}", source.display())));
+    sink(&plain(&format!(
+      "Could not write {}: {e}",
+      source.display()
+    )));
     return;
   }
 
@@ -250,7 +253,9 @@ fn execute(dir: &Path, sink: Sink) {
   match child {
     Ok(child) => run_with_timeout(child, sink),
     Err(e) => {
-      sink(&plain(&format!("Could not start the compiled program: {e}")));
+      sink(&plain(&format!(
+        "Could not start the compiled program: {e}"
+      )));
     }
   }
 }
@@ -322,7 +327,10 @@ fn run_with_timeout(mut child: Child, sink: Sink) {
 /// read, and `None` at the end. A piece that ends partway through a UTF-8
 /// character keeps that character's first bytes for the next one, so no
 /// character is ever split into two replacement characters.
-fn forward(mut pipe: impl Read + Send + 'static, tx: mpsc::Sender<Option<String>>) {
+fn forward(
+  mut pipe: impl Read + Send + 'static,
+  tx: mpsc::Sender<Option<String>>,
+) {
   thread::spawn(move || {
     let mut pending = Vec::new();
     let mut buf = [0; 4096];
@@ -498,7 +506,10 @@ mod test {
     });
     let a = pieces.iter().find(|(_, html)| html == "a\n").expect("a");
     let b = pieces.iter().find(|(_, html)| html == "b\n").expect("b");
-    assert!(b.0 - a.0 >= std::time::Duration::from_millis(400), "{pieces:?}");
+    assert!(
+      b.0 - a.0 >= std::time::Duration::from_millis(400),
+      "{pieces:?}"
+    );
   }
 
   #[test]

@@ -3,3 +3,5 @@ packages:
 allowBuilds:
   '@biomejs/biome': true
   esbuild: true
+  # Sass's file watcher, which nothing here uses.
+  '@parcel/watcher': false

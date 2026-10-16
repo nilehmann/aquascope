@@ -85,7 +85,11 @@ impl Problem {
       ));
     }
     if let Some(details) = &self.details {
-      let open = if self.diagnostic.is_none() { " open" } else { "" };
+      let open = if self.diagnostic.is_none() {
+        " open"
+      } else {
+        ""
+      };
       html.push_str(&format!(
         "<details{open}><summary>Raw output</summary><pre>{}</pre></details>\n",
         plain(details)

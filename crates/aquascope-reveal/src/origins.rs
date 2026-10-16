@@ -666,69 +666,70 @@ fn highlight(code: &str) -> Vec<Span> {
     let next = toks[n + 1 ..].iter().find(significant).map(|t| &t.1);
     let prev = toks[.. n].iter().rev().find(significant);
 
-    let class = match kind {
-      TokenKind::LineComment { .. } | TokenKind::BlockComment { .. } => {
-        "hljs-comment".to_string()
-      }
-      TokenKind::Literal { kind, .. } => match kind {
-        LiteralKind::Int { .. } | LiteralKind::Float { .. } => {
-          "hljs-number".to_string()
+    let class =
+      match kind {
+        TokenKind::LineComment { .. } | TokenKind::BlockComment { .. } => {
+          "hljs-comment".to_string()
         }
-        // Every flavour of string, char and byte literal reads as a string.
-        _ => "hljs-string".to_string(),
-      },
-      // Ordinary syntax. A lifetime is boxed only where the source asked
-      // for it, with `'?a`, `'!a` or a frame around it.
-      TokenKind::Lifetime { .. } | TokenKind::RawLifetime => {
-        "hljs-symbol".to_string()
-      }
-      TokenKind::Ident | TokenKind::RawIdent => {
-        // `foo!` is an ident and a `!`; hljs paints the pair as one built_in.
-        if matches!(next, Some(TokenKind::Bang)) {
-          let bang = toks[n + 1 ..].iter().find(significant).unwrap();
-          spans.push(Span {
-            range: range.start .. bang.0.end,
-            class: "hljs-built_in".to_string(),
-            is_marker: false,
-            data_type: None,
-            step: None,
-            focus: None,
+        TokenKind::Literal { kind, .. } => match kind {
+          LiteralKind::Int { .. } | LiteralKind::Float { .. } => {
+            "hljs-number".to_string()
+          }
+          // Every flavour of string, char and byte literal reads as a string.
+          _ => "hljs-string".to_string(),
+        },
+        // Ordinary syntax. A lifetime is boxed only where the source asked
+        // for it, with `'?a`, `'!a` or a frame around it.
+        TokenKind::Lifetime { .. } | TokenKind::RawLifetime => {
+          "hljs-symbol".to_string()
+        }
+        TokenKind::Ident | TokenKind::RawIdent => {
+          // `foo!` is an ident and a `!`; hljs paints the pair as one built_in.
+          if matches!(next, Some(TokenKind::Bang)) {
+            let bang = toks[n + 1 ..].iter().find(significant).unwrap();
+            spans.push(Span {
+              range: range.start .. bang.0.end,
+              class: "hljs-built_in".to_string(),
+              is_marker: false,
+              data_type: None,
+              step: None,
+              focus: None,
+            });
+            continue;
+          }
+          let after_fn = prev.is_some_and(|(r, k)| {
+            *k == TokenKind::Ident && &code[r.clone()] == "fn"
           });
-          continue;
+          // `auto` is a keyword only in `auto trait`; anywhere else it is a
+          // name like any other.
+          let auto_trait =
+            text == "auto"
+              && toks[n + 1 ..].iter().find(significant).is_some_and(
+                |(r, k)| *k == TokenKind::Ident && &code[r.clone()] == "trait",
+              );
+          if KEYWORDS.contains(&text) || auto_trait {
+            "hljs-keyword".to_string()
+          } else if LITERALS.contains(&text) {
+            "hljs-literal".to_string()
+          } else if PRIMS.contains(&text) {
+            "hljs-type".to_string()
+          } else if text.starts_with(char::is_uppercase) {
+            "hljs-built_in".to_string()
+          } else if matches!(next, Some(TokenKind::OpenParen)) || after_fn {
+            // Call sites and fn definitions: hljs paints both as titles.
+            "hljs-title".to_string()
+          } else {
+            continue;
+          }
         }
-        let after_fn = prev.is_some_and(|(r, k)| {
-          *k == TokenKind::Ident && &code[r.clone()] == "fn"
-        });
-        // `auto` is a keyword only in `auto trait`; anywhere else it is a
-        // name like any other.
-        let auto_trait = text == "auto"
-          && toks[n + 1 ..]
-            .iter()
-            .find(significant)
-            .is_some_and(|(r, k)| *k == TokenKind::Ident && &code[r.clone()] == "trait");
-        if KEYWORDS.contains(&text) || auto_trait {
-          "hljs-keyword".to_string()
-        } else if LITERALS.contains(&text) {
-          "hljs-literal".to_string()
-        } else if PRIMS.contains(&text) {
-          "hljs-type".to_string()
-        } else if text.starts_with(char::is_uppercase) {
-          "hljs-built_in".to_string()
-        } else if matches!(next, Some(TokenKind::OpenParen)) || after_fn {
-          // Call sites and fn definitions: hljs paints both as titles.
-          "hljs-title".to_string()
-        } else {
-          continue;
+        // The `!` of a macro, already folded into the name above.
+        TokenKind::Bang
+          if prev.is_some_and(|(_, k)| matches!(k, TokenKind::Ident)) =>
+        {
+          continue
         }
-      }
-      // The `!` of a macro, already folded into the name above.
-      TokenKind::Bang
-        if prev.is_some_and(|(_, k)| matches!(k, TokenKind::Ident)) =>
-      {
-        continue
-      }
-      _ => continue,
-    };
+        _ => continue,
+      };
 
     spans.push(Span {
       range: range.clone(),
@@ -961,7 +962,12 @@ pub fn render(
   // -- otherwise the box would stay on the slide around the hidden code. See
   // `Span::nesting` for the order among markers.
   spans.sort_by_key(|s| {
-    (s.range.start, Reverse(s.range.end), !s.is_marker, s.nesting())
+    (
+      s.range.start,
+      Reverse(s.range.end),
+      !s.is_marker,
+      s.nesting(),
+    )
   });
 
   let mut out = String::new();
@@ -1788,11 +1794,15 @@ mod test {
   #[test]
   fn an_unused_name_is_not_a_failure() {
     // A slide shows what makes its point and nothing else.
-    let problems = check(&[Program {
-      line: 1,
-      code: "fn helper() {}\nfn main() { let x = 1; }".into(),
-      should_fail: false,
-    }], "d.md", &Default::default());
+    let problems = check(
+      &[Program {
+        line: 1,
+        code: "fn helper() {}\nfn main() { let x = 1; }".into(),
+        should_fail: false,
+      }],
+      "d.md",
+      &Default::default(),
+    );
     assert!(problems.is_empty(), "{problems:?}");
   }
 
@@ -1950,7 +1960,10 @@ mod test {
   #[test]
   fn a_static_highlight_is_lit_from_the_start() {
     let html = one("```origins,notation\nlet a = [[=:x + 1:]];\n```\n");
-    assert!(pre(&html).contains("<span class=\"ohl on\">x + 1</span>"), "{html}");
+    assert!(
+      pre(&html).contains("<span class=\"ohl on\">x + 1</span>"),
+      "{html}"
+    );
     // Nothing timed, so no step to clear it on.
     assert!(!html.contains("ohl-end"), "{html}");
   }
@@ -2014,14 +2027,14 @@ mod test {
 
   #[test]
   fn rejects_highlights_that_could_not_show() {
-    assert!(err("```origins\nlet a = [[=0:1:]];\n```\n").contains("count from 1"));
+    assert!(
+      err("```origins\nlet a = [[=0:1:]];\n```\n").contains("count from 1")
+    );
     assert!(
       err("```origins\n# let a = [[=:1:]];\n```\n").contains("hidden line")
     );
-    assert!(
-      err("```origins\nlet a = [[+3:[[=2:1:]]:]];\n```\n")
-        .contains("inside step 3")
-    );
+    assert!(err("```origins\nlet a = [[+3:[[=2:1:]]:]];\n```\n")
+      .contains("inside step 3"));
   }
 
   #[test]
@@ -2047,16 +2060,23 @@ mod test {
 
   #[test]
   fn a_note_for_the_highlights_lit_from_the_start() {
-    let html = one("```origins,notation\nlet a = [[=:x:]];\n```\n[=]: always\n");
-    assert!(html.contains("<div class=\"ohl-note\">always</div>"), "{html}");
+    let html =
+      one("```origins,notation\nlet a = [[=:x:]];\n```\n[=]: always\n");
+    assert!(
+      html.contains("<div class=\"ohl-note\">always</div>"),
+      "{html}"
+    );
   }
 
   #[test]
   fn notes_end_at_the_first_line_that_is_not_one() {
     // A blank line between the fence and the notes is allowed...
-    let html = one("```origins,notation\nlet a = [[=1:x:]];\n```\n\n[=1]: a note\n");
+    let html =
+      one("```origins,notation\nlet a = [[=1:x:]];\n```\n\n[=1]: a note\n");
     assert!(html.contains("ohl-notes"), "{html}");
-    let html = one("```origins,notation\nlet a = [[=1:x:]];\n```\nText.\n[=1]: too late\n");
+    let html = one(
+      "```origins,notation\nlet a = [[=1:x:]];\n```\nText.\n[=1]: too late\n",
+    );
     // ...but anything else ends them.
     assert!(!html.contains("ohl-notes"), "{html}");
   }
@@ -2074,8 +2094,14 @@ mod test {
       ),
       "{html}"
     );
-    assert!(html.contains("<span class=\"hljs-keyword\">let</span> auto = "), "{html}");
-    assert!(html.contains("<span class=\"hljs-literal\">true</span>"), "{html}");
+    assert!(
+      html.contains("<span class=\"hljs-keyword\">let</span> auto = "),
+      "{html}"
+    );
+    assert!(
+      html.contains("<span class=\"hljs-literal\">true</span>"),
+      "{html}"
+    );
   }
 
   #[test]
@@ -2098,14 +2124,18 @@ mod test {
 
   #[test]
   fn rejects_notes_that_explain_nothing() {
-    assert!(err("```origins,notation\nlet a = [[=1:x:]];\n```\n[=]: hm\n")
-      .contains("no `[[=:` highlight"));
+    assert!(
+      err("```origins,notation\nlet a = [[=1:x:]];\n```\n[=]: hm\n")
+        .contains("no `[[=:` highlight")
+    );
     assert!(err(
       "```origins,notation\nlet a = [[=1:x:]];\n```\n[=1]: a\n[=1]: b\n"
     )
     .contains("defined twice"));
-    assert!(err("```origins,notation\nlet a = [[=1:x:]];\n```\n[=0]: a\n")
-      .contains("count from 1"));
+    assert!(
+      err("```origins,notation\nlet a = [[=1:x:]];\n```\n[=0]: a\n")
+        .contains("count from 1")
+    );
     assert!(err("```origins,notation\nlet a = [[=1:x:]];\n```\n[=1]:\n")
       .contains("has no text"));
   }
@@ -2113,8 +2143,13 @@ mod test {
   #[test]
   fn notes_float_from_the_deck_or_the_block() {
     let block = |spec: &str, notes: &str, deck| {
-      let md = format!("```origins,notation{spec}\nlet a = [[=1:x:]];\n```\n{notes}");
-      super::replacements(&md, 1, deck, &NoTypes).unwrap().0.remove(0).1
+      let md =
+        format!("```origins,notation{spec}\nlet a = [[=1:x:]];\n```\n{notes}");
+      super::replacements(&md, 1, deck, &NoTypes)
+        .unwrap()
+        .0
+        .remove(0)
+        .1
     };
     let floats = |html: String| {
       html.starts_with("<div class=\"origins-block ohl-float\">")
@@ -2123,8 +2158,16 @@ mod test {
     assert!(floats(block("", "[=1]: x\n", NotesStyle::Float)));
     assert!(!floats(block("", "[=1]: x\n", NotesStyle::Strip)));
     // A block's own choice wins over the deck's.
-    assert!(!floats(block(",notes=strip", "[=1]: x\n", NotesStyle::Float)));
-    assert!(floats(block(",notes=float", "[=1]: x\n", NotesStyle::Strip)));
+    assert!(!floats(block(
+      ",notes=strip",
+      "[=1]: x\n",
+      NotesStyle::Float
+    )));
+    assert!(floats(block(
+      ",notes=float",
+      "[=1]: x\n",
+      NotesStyle::Strip
+    )));
     // A block with no notes has nothing to float.
     assert!(!floats(block(",notes=float", "", NotesStyle::Float)));
     assert!(err("```origins,notes=side\nfn main() {}\n```\n")

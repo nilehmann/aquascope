@@ -28,8 +28,21 @@
     }
   }
 
+  // A `--dist single` deck carries the bundle in an inert
+  // `<script type="text/x-aquascope-embed">`, which the browser does not run.
+  // It is run here instead, at the same point the file would be loaded, so
+  // the bundle's own `load` listener has still already missed its event.
   var embedPromise = null;
   function loadEmbed() {
+    var inline = document.getElementById("aquascope-embed");
+    if (!embedPromise && inline) {
+      embedPromise = new Promise(function (resolve) {
+        var script = document.createElement("script");
+        script.textContent = inline.textContent;
+        document.head.appendChild(script);
+        resolve();
+      });
+    }
     if (!embedPromise) {
       embedPromise = new Promise(function (resolve, reject) {
         var script = document.createElement("script");
@@ -1139,7 +1152,8 @@
           step("step-back");
         }
       },
-      plugins: [RevealHighlight, RevealNotes]
+      // No RevealHighlight in a deck with no fence for it to highlight.
+      plugins: [window.RevealHighlight, RevealNotes].filter(Boolean)
     })).then(function () {
       hydrate(Reveal.getCurrentSlide());
       addBlockControls(Reveal.getCurrentSlide());

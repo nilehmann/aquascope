@@ -178,6 +178,16 @@ let ExtraInfo = () => (
   </div>
 );
 
+// A page that carries its files inline -- aquascope-reveal's `--dist single`
+// -- maps their paths to `data:` URIs here, since the crab below is markup
+// created at runtime that no build step can rewrite.
+declare global {
+  var AQUASCOPE_ASSETS: Record<string, string> | undefined;
+}
+
+const CRAB = "img/ferris/does_not_compile.svg";
+let crabSrc = () => window.AQUASCOPE_ASSETS?.[CRAB] ?? CRAB;
+
 window.initAquascopeBlocks = (root: HTMLElement) => {
   root.querySelectorAll<HTMLDivElement>(`.${EMBED_NAME}`).forEach(elem => {
     elem.classList.remove(EMBED_NAME);
@@ -227,7 +237,7 @@ window.initAquascopeBlocks = (root: HTMLElement) => {
     let shouldFailHtml = `
   <div class="ferris-container">
     <img
-      src="img/ferris/does_not_compile.svg"
+      src="${crabSrc()}"
       title="This code does not compile!"
       class="ferris ferris-large"
     />

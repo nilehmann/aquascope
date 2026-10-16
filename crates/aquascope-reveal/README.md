@@ -4,12 +4,17 @@ Builds a [reveal.js](https://revealjs.com) deck from a markdown file, running
 Aquascope over every ` ```aquascope ` block at build time and baking the results
 into the page. The output is static: presenting it needs no Aquascope server.
 
+Every run says what it is for. `--serve` is for writing and presenting the
+deck; `--dist` builds it to hand out, as a directory or as one `.html` file:
+
 ```
-aquascope-reveal lecture.md -o dist --serve
+aquascope-reveal lecture.md --static img --serve --watch
+aquascope-reveal lecture.md --static img --dist dir      # dist/
+aquascope-reveal lecture.md --static img --dist single   # lecture.html
 ```
 
-The output is a plain directory of static files, so it can also be served by
-anything else, or committed and hosted.
+A run with neither is an error, and the two cannot be combined. See
+[Serving](#serving) and [Distributing](#distributing).
 
 ## Front matter
 
@@ -239,16 +244,16 @@ so a lone `struct` and `impl` check without complaint. `unused` warnings are
 allowed: a slide shows what makes its point and nothing else.
 
 `run` gives the block a button that compiles and runs it, the same way the
-Aquascope editor's does -- posting to the Rust playground, or to
-`aquascope-reveal --serve` itself when the deck is being served, so a lecture
-needs no network. The output box, its close and expand buttons and the
+Aquascope editor's does -- posting to `aquascope-reveal --serve` itself when
+the deck is being served, so a lecture needs no network, and to the Rust
+playground from a `--dist` deck. The output box, its close and expand buttons and the
 full-size modal are the editor's, so the two kinds of block behave alike.
 
 When the deck is served, the output is also *streamed*: each line appears as
 the program prints it, stdout and stderr interleaved as they were written, so
 two threads taking turns are seen taking turns. Compiler diagnostics arrive
 first, in one piece. Pressing Run again, or closing the output, stops the
-program that is still running. A deck hosted elsewhere posts to the
+program that is still running. A `--dist` deck posts to the
 playground, which only answers once the program has finished, and the
 editor's Run button in ```` ```aquascope ```` blocks does the same either
 way.
@@ -318,10 +323,10 @@ beside the other build, so that happens once and not once per block. Answers
 are cached under the block and the dependencies, so a deck without any keeps
 its cache as it was.
 
-Without `--serve`, Run posts to the Rust playground, which has [its own
-selection of crates][playground-crates] -- many of the popular ones, but
-not necessarily a deck's. The build warns when a deck has dependencies and is
-not being served.
+In a `--dist` deck, Run posts to the Rust playground, which has [its own
+selection of crates][playground-crates] -- many of the popular ones, `trpl`
+among them, but not necessarily a deck's. `--dist` warns when a deck has
+dependencies.
 
 [playground-crates]: https://github.com/rust-lang/rust-playground/blob/main/compiler/base/Cargo.toml
 
@@ -548,6 +553,24 @@ once, for both kinds of block, so the two read as one thing on a slide. A
 `shouldFail` block emits the same `.ferris-container` markup `aquascope-embed`
 does. mdBook's `ferris.js` is not involved and must not be: it inserts its own
 container as a *sibling* of the block, which is what puts the crab outside it.
+The crab itself, `img/ferris/does_not_compile.svg`, is built in; a
+`--static img` directory holding its own copy replaces it.
+
+Font Awesome 4.7 is built in too, and linked before a deck's own
+stylesheets, so a deck can draw its icons -- `content: "\f071"; font-family:
+FontAwesome` -- without shipping the font. Only for drawing in CSS: an `<i
+class="fa fa-...">` in a slide is replaced by Aquascope's bundle, which
+carries Font Awesome 6's JavaScript, with an icon from its own set.
+
+A fenced block that is neither ```aquascope nor ```origins is highlighted by
+highlight.js 11.9, if its fence names a language: ```cpp, ```c++ and every
+other name or alias highlight.js knows. Only the grammars a deck's fences
+name are included, and none at all, with no highlighter, when it names none.
+A fence that names no language is left plain -- there is no guessing -- and
+one naming a language highlight.js does not have is warned about and left
+plain. This replaces reveal's highlight plugin, which carries all 190
+grammars, 0.9 MB, and its line-number features (`data-line-numbers`) are not
+supported.
 
 A deck's own stylesheet is linked after this one, so it can override anything.
 The colours are meant to be overridden: redefine `--o` and `--o-pale` on a
@@ -568,8 +591,8 @@ until a stylesheet gives `.origin-x` an `--o` of its own.
 Two things follow from how this is rendered, and are easy to trip over when
 hand-writing the equivalent HTML instead:
 
-- The output is a `pre` with **no `code` child**. reveal's highlight plugin
-  rewrites the innerHTML of every `pre code` it finds, which would strip the
+- The output is a `pre` with **no `code` child**. The highlighter rewrites
+  the innerHTML of every `pre code` naming a language, which would strip the
   boxes; a `pre` on its own is never selected.
 - A blank line in the block is emitted as a line holding one space, because a
   truly blank line would end the raw-HTML block the markdown renderer sees and
@@ -595,31 +618,92 @@ behaviour this crate does change, since stepping a diagram has no other key.
 
 | Flag | Effect |
 | --- | --- |
-| `-o, --out-dir` | Where to write the deck. Defaults to `dist`. |
+| `--serve [PORT]` | Build into a cache directory and serve the deck on `127.0.0.1:PORT`, default 4321. See [Serving](#serving). |
+| `--watch` | With `--serve`: rebuild on change and reload the open page. See [Watching](#watching). |
+| `--dist dir\|single` | Build the deck to hand out, as a directory or as one `.html` file. The mode is required. See [Distributing](#distributing). |
+| `-o, --out` | With `--dist`: where to write. Defaults to `dist` for `dir`, `<input stem>.html` for `single`. |
 | `--title` | Page title. Defaults to the input file stem. |
-| `--theme` | reveal.js theme name. Defaults to `white`. |
-| `--reveal-dir` | Path to a local reveal.js package (the directory holding `dist` and `plugin`, e.g. `node_modules/reveal.js`). Without it the deck loads reveal.js from a CDN and will not work offline. |
-| `--css` | Extra stylesheet, copied in and linked after Aquascope's. Repeatable. |
-| `--js` | Extra script, copied in and loaded last. Repeatable. |
-| `--static` | Directory copied verbatim to `<out-dir>/<name>`, for images and fonts the slides reference by path. Repeatable. |
-| `--serve [PORT]` | Serve the deck on `127.0.0.1:PORT`, default 4321. |
-| `--watch` | Rebuild on change and reload the open page. See below. |
+| `--theme` | reveal.js theme name. Defaults to `white`. The themes are reveal.js 5.1.0's, which is built in. |
+| `--css` | Extra stylesheet, included as `assets/<name>` and linked after Aquascope's. Repeatable. |
+| `--js` | Extra script, included as `assets/<name>` and loaded last. Repeatable. |
+| `--static` | Directory included as `<name>/`, for images and fonts the slides refer to by path. Repeatable. |
 | `--poll-ms` | Poll interval while watching. Defaults to 400. |
+
+Exactly one of `--serve` and `--dist` is required. reveal.js itself, with its
+themes, fonts and notes plugin, highlight.js and Font Awesome 4.7 are
+compiled into the binary, so no deck needs a network to show.
 
 ## Serving
 
-`--serve` runs a small built-in static server on loopback, so previewing needs
-nothing else installed. It is a preview server and nothing more: one thread per
+`--serve` builds the deck into a directory of its own in the cache --
+`$XDG_CACHE_HOME/aquascope-reveal/serve/<hash of the deck's path>/`, beside
+the [external crates](#external-crates) -- and runs a small built-in static
+server on loopback over it, so presenting needs nothing else installed and
+writes nothing into the project. The directory is emptied when the server
+starts, so nothing from an earlier run is served.
+
+A served deck's Run compiles on this machine, against the deck's
+dependencies, with the output streamed. A slide referring to a file the deck
+does not have is a warning here; `--dist` refuses to build it.
+
+It is a preview server and nothing more: one thread per
 connection, no keep-alive, no ranges, no compression, and every response is
 `Cache-Control: no-store` so a rebuilt asset is never served from cache.
 Requests that try to escape the output directory are rejected, including
 percent-encoded forms of `..`.
 
+## Distributing
+
+`--dist` builds the deck to hand out. The mode is not optional:
+
+- `--dist dir` writes a directory, `dist` unless `-o` says otherwise, to be
+  hosted anywhere or opened as a file.
+- `--dist single` writes one `.html` file, `<input stem>.html` unless `-o`
+  says otherwise, with everything the deck needs inside it: reveal.js,
+  Aquascope, the theme's fonts, the `--css` and `--js` files, and every
+  file of a `--static` directory that the slides use. It opens from a
+  double-click, an email attachment or a USB stick with no network.
+
+Both behave like a compiler rather than a dev server:
+
+- **A failed build writes nothing.** The problems go to stderr and the exit
+  code is non-zero. The output is built beside its target and moved into
+  place only once it is complete, so the previous one stays as it was.
+- **Every relative reference has to resolve.** A slide's `src`, `href`,
+  `poster`, `data-src`, `data-background-image`, `style` and `<style>`
+  `url()`s, and the `url()`s and `@import`s of every stylesheet, must name a
+  file the deck has -- in practice, one in a `--static` directory. A
+  reference that does not fails the build, naming its slide, as does one
+  starting with `/` or leaving the deck with `..`. Absolute URLs (`https:`,
+  `data:`) are left alone.
+- **`--dist dir` replaces its directory whole**, so nothing from an earlier
+  build lingers. It writes a `.aquascope-reveal` marker into it and replaces
+  only a directory holding one, or an empty one; any other fails the build,
+  so a mistyped `-o` cannot delete anything.
+- **Run posts to the Rust playground**, the deck having no server; see
+  [External crates](#external-crates).
+
+`--dist single` has two limits of its own. A link to a file (`<a
+href="notes.pdf">`) fails the build, since browsers refuse to open a `data:`
+URI from a link; use `--dist dir` for such a deck. And every inlined file
+grows the one file by a third again, base64 being what it is, so the build
+warns about each file over 5 MB and prints the size it wrote.
+
+To keep it small, a single file carries only what a browser will load. Each
+stylesheet is put through lightningcss: an `@font-face` listing several
+formats keeps only the best every browser reads (woff2, then woff, then
+ttf/otf), since the others would never be fetched -- for Font Awesome's own
+CSS that is 77 KB of its 1.3 MB -- and an `@import` is replaced by the text
+of the stylesheet it imports rather than inlined as a `data:` URI, which
+would base64 its fonts twice. A typical lecture deck comes to about 2 MB,
+most of it the Aquascope bundle.
+
 ## Watching
 
-`--watch` rebuilds whenever the deck, any `--css`/`--js` file, or anything
-inside a `--static` directory changes, and injects a script that reloads the
-open page once the rebuild lands. Combine the two for the usual authoring loop:
+`--watch`, which only goes with `--serve`, rebuilds whenever the deck, any
+`--css`/`--js` file, or anything inside a `--static` directory changes, and
+injects a script that reloads the open page once the rebuild lands. The two
+are the usual authoring loop:
 
 ```
 aquascope-reveal lecture.md --static img --serve --watch
@@ -642,8 +726,8 @@ usual. If the very first build fails, a placeholder page carries the modal
 until there is a deck.
 
 The reload script, `build-stamp.txt` and `build-error.html` are written only
-under `--watch`, so a plain build stays clean. Without `--watch`, a failing
-build still prints every problem, exits non-zero, and writes nothing.
+under `--watch`, into the cache directory. `--serve` without `--watch` fails
+on a broken first build, printing every problem; `--dist` always does.
 
 Changes are detected by polling modification times rather than with inotify, to
 keep the crate free of a filesystem-notification dependency. The file list is
@@ -665,7 +749,9 @@ Two constraints shape the glue in `assets/aquascope-reveal.js`:
   off-screen slides at `display: none`, where `getBoundingClientRect()` returns
   zeros, and Aquascope positions its pointer arrows from those rects. The embed
   bundle is injected *after* the `load` event has fired so that its own
-  hydrate-everything listener never runs. `initAquascopeBlocks` is idempotent —
+  hydrate-everything listener never runs. A `--dist single` deck carries the
+  bundle in an inert `<script type="text/x-aquascope-embed">` instead of a
+  file, and the glue runs its text at that same point. `initAquascopeBlocks` is idempotent —
   it strips the `aquascope-embed` class as it goes — so revisiting a slide is
   free.
 
@@ -681,5 +767,19 @@ Present in a Chromium-based browser.
 ## Building
 
 `build.rs` copies the embed bundle out of
-`frontend/packages/aquascope-embed/dist/`, so run `depot build` in `frontend`
-before `cargo install --path crates/aquascope-reveal`.
+`frontend/packages/aquascope-embed/dist/`, so run `depot build --release` in
+`frontend` before `cargo install --path crates/aquascope-reveal`, or `cargo
+make install-reveal` for both. A plain `depot build` makes a development
+bundle, unminified and with React's development checks, almost three times
+the size; a release build of this crate refuses it, and a debug build warns.
+
+`build.rs` also compiles in reveal.js 5.1.0, highlight.js 11.9.0 and Font
+Awesome 4.7.0. None of them is checked in: they are devDependencies of
+`aquascope-embed`, pinned exactly, so the same `depot build` installs them
+into its `node_modules`, and `build.rs` takes what a deck loads from there,
+checking each is the version it expects. It changes a few files on the way
+-- font stylesheets cut to woff/woff2 sources, highlight.js's ES-module core
+wrapped as a classic script -- as its `Vendor` doc comment describes. To
+upgrade one, change its version in `aquascope-embed/package.json` and in
+`build.rs`. The `shouldFail` crab, from the Rust book, is the one file
+checked in, as `assets/ferris/does_not_compile.svg`.

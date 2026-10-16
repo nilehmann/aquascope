@@ -4,15 +4,18 @@
 //! `crates/aquascope-reveal/README.md`.
 
 use std::{
+  collections::{hash_map::DefaultHasher, BTreeSet},
   fs,
+  hash::{Hash, Hasher},
   path::{Path, PathBuf},
   thread,
   time::{Duration, SystemTime},
 };
 
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::{ArgGroup, Parser, ValueEnum};
 use mdbook_aquascope::AquascopePreprocessor;
+use site::{Include, Page, Site};
 
 mod attributes;
 mod deck;
@@ -23,9 +26,11 @@ mod origins;
 mod overlay;
 mod run;
 mod serve;
+mod site;
+mod stylesheet;
 mod types;
 
-/// Assets copied verbatim into `<out>/aquascope/`. The first two come from the
+/// Assets written into the deck's `aquascope/`. The first two come from the
 /// frontend build via build.rs; the last two are the reveal.js glue.
 const EMBED_JS: &[u8] = include_bytes!("../js/embed.iife.js");
 const EMBED_CSS: &[u8] = include_bytes!("../js/style.css");
@@ -34,18 +39,45 @@ const GLUE_CSS: &[u8] = include_bytes!("../assets/aquascope-reveal.css");
 /// mdBook's highlight.js theme. CodeMirror emits `hljs-*` spans that Aquascope
 /// does not colour itself, relying on the book to supply a theme.
 const HIGHLIGHT_CSS: &[u8] = include_bytes!("../assets/highlight.css");
+const HIGHLIGHT_JS: &[u8] = include_bytes!("../assets/reveal-highlight.js");
 
-const CDN: &str = "https://cdn.jsdelivr.net/npm/reveal.js@5.1.0";
+/// The crab a `shouldFail` block shows, from the Rust book
+/// (`rust-lang/book`, `src/img/ferris/`, MIT/Apache-2.0), served where
+/// Aquascope's markup looks for it.
+const CRAB: &[u8] = include_bytes!("../assets/ferris/does_not_compile.svg");
+
+// reveal.js, highlight.js and Font Awesome, compiled in by build.rs from the
+// frontend's node_modules.
+include!(concat!(env!("OUT_DIR"), "/vendor.rs"));
+
+/// Where in [`VENDOR`] reveal.js is, and where in the deck it goes.
+const REVEAL_SRC: &str = "reveal.js/";
+const REVEAL_DST: &str = "reveal/";
+/// The same for highlight.js.
+const HLJS_SRC: &str = "highlight.js/";
+const HLJS_DST: &str = "highlight/";
+/// Font Awesome 4.7, for decks that draw its icons in their own stylesheets.
+const FONT_AWESOME: &str = "font-awesome/";
 
 #[derive(Parser)]
 #[clap(author, about, version)]
+#[clap(group(ArgGroup::new("mode").required(true).args(["serve", "dist"])))]
 struct Args {
   /// Markdown file holding the deck.
   input: PathBuf,
 
-  /// Directory to write the built deck into.
-  #[clap(short, long, default_value = "dist")]
-  out_dir: PathBuf,
+  /// Build the deck to hand out: `dir` for a directory of files, `single` for
+  /// one self-contained .html file. A failed build writes nothing.
+  #[clap(long, value_enum, value_name = "MODE", conflicts_with_all = ["serve", "watch"])]
+  dist: Option<DistMode>,
+
+  /// Where `--dist` writes: a directory for `dir` (default `dist`), a file
+  /// for `single` (default `<input stem>.html`).
+  // `conflicts_with` rather than `requires = "dist"`, which this clap does
+  // not enforce for a member of a required group. One of the two is always
+  // given, so it says the same.
+  #[clap(short, long, conflicts_with = "serve")]
+  out: Option<PathBuf>,
 
   /// Page title. Overrides the front matter; defaults to the input file stem.
   #[clap(long)]
@@ -56,12 +88,6 @@ struct Args {
   #[clap(long)]
   theme: Option<String>,
 
-  /// Path to a local reveal.js package (the directory containing `dist` and
-  /// `plugin`, e.g. node_modules/reveal.js). Without this the deck loads
-  /// reveal.js from a CDN, which means it will not work offline.
-  #[clap(long)]
-  reveal_dir: Option<PathBuf>,
-
   /// Extra stylesheet to copy in and link after Aquascope's own.
   #[clap(long = "css")]
   extra_css: Vec<PathBuf>,
@@ -70,12 +96,13 @@ struct Args {
   #[clap(long = "js")]
   extra_js: Vec<PathBuf>,
 
-  /// Directory copied verbatim into the output as `<out-dir>/<name>`, for
-  /// images, fonts and anything else the slides reference by path. Repeatable.
+  /// Directory included in the deck as `<name>/`, for images, fonts and
+  /// anything else the slides refer to by path. Repeatable.
   #[clap(long = "static")]
   static_dirs: Vec<PathBuf>,
 
-  /// Serve the built deck on localhost. Takes an optional port.
+  /// Build the deck into a cache directory and serve it on localhost, with
+  /// Run compiling against the deck's dependencies. Takes an optional port.
   #[clap(
     long,
     value_name = "PORT",
@@ -84,15 +111,84 @@ struct Args {
   )]
   serve: Option<u16>,
 
-  /// Rebuild whenever the input, the extra assets or the static directories
-  /// change. Also injects a script that reloads the open page after each
-  /// rebuild.
-  #[clap(long)]
+  /// With --serve, rebuild whenever the input, the extra assets or the
+  /// static directories change, and reload the open page after each rebuild.
+  #[clap(long, requires = "serve")]
   watch: bool,
 
   /// How often to poll for changes while watching.
   #[clap(long, default_value = "400", value_name = "MS")]
   poll_ms: u64,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum DistMode {
+  Dir,
+  Single,
+}
+
+/// What a build is for, which decides where it goes and what the page
+/// carries besides the slides.
+enum Target {
+  /// `--serve`: a directory in the cache, the page posting runs to the
+  /// server and, with `--watch`, reloading itself.
+  Dev {
+    dir: PathBuf,
+    port: u16,
+    watch: bool,
+  },
+  DistDir(PathBuf),
+  DistSingle(PathBuf),
+}
+
+impl Target {
+  fn of(args: &Args) -> Result<Self> {
+    let stem = || {
+      args
+        .input
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "slides".to_string())
+    };
+    Ok(match (args.dist, args.serve) {
+      (Some(DistMode::Dir), _) => Target::DistDir(
+        args.out.clone().unwrap_or_else(|| PathBuf::from("dist")),
+      ),
+      (Some(DistMode::Single), _) => Target::DistSingle(
+        args
+          .out
+          .clone()
+          .unwrap_or_else(|| PathBuf::from(format!("{}.html", stem()))),
+      ),
+      (None, Some(port)) => Target::Dev {
+        dir: dev_dir(&args.input)?,
+        port,
+        watch: args.watch,
+      },
+      // clap requires one of the two.
+      (None, None) => unreachable!(),
+    })
+  }
+
+  fn is_dist(&self) -> bool {
+    !matches!(self, Target::Dev { .. })
+  }
+}
+
+/// Where `--serve` builds a deck: one directory per deck in the cache,
+/// beside the external crates', named by a hash of the deck's path so two
+/// decks served at once keep apart.
+fn dev_dir(input: &Path) -> Result<PathBuf> {
+  let path = fs::canonicalize(input)
+    .with_context(|| format!("resolving {}", input.display()))?;
+  let mut hasher = DefaultHasher::new();
+  path.hash(&mut hasher);
+  Ok(
+    deps::cache_root()
+      .join("aquascope-reveal")
+      .join("serve")
+      .join(format!("{:016x}", hasher.finish())),
+  )
 }
 
 /// Applies the preprocessor's byte-range replacements back-to-front, so that
@@ -115,37 +211,25 @@ fn escape(s: &str) -> String {
     .replace('>', "&gt;")
 }
 
-/// Copies `src` into `<dst_dir>/<file name>` and returns the name, for linking.
-fn copy_into(src: &PathBuf, dst_dir: &PathBuf) -> Result<String> {
-  let name = src
-    .file_name()
-    .with_context(|| format!("{} has no file name", src.display()))?
-    .to_string_lossy()
-    .into_owned();
-  fs::copy(src, dst_dir.join(&name))
-    .with_context(|| format!("copying {}", src.display()))?;
-  Ok(name)
+/// The name a linked file goes by in the deck's `assets/`.
+fn file_name(path: &Path) -> Result<String> {
+  Ok(
+    path
+      .file_name()
+      .with_context(|| format!("{} has no file name", path.display()))?
+      .to_string_lossy()
+      .into_owned(),
+  )
 }
 
-fn copy_tree(src: &PathBuf, dst: &PathBuf) -> Result<()> {
-  fs::create_dir_all(dst)?;
-  for entry in fs::read_dir(src)? {
-    let entry = entry?;
-    let to = dst.join(entry.file_name());
-    if entry.file_type()?.is_dir() {
-      copy_tree(&entry.path(), &to)?;
-    } else {
-      fs::copy(entry.path(), to)?;
-    }
-  }
-  Ok(())
-}
-
+/// Builds the deck, in memory. Nothing is written: that is the target's
+/// business, and a build that fails has nothing to write.
 fn build(
   args: &Args,
+  target: &Target,
   preprocessor: &mut AquascopePreprocessor,
   shared_deps: &deps::Shared,
-) -> Result<()> {
+) -> Result<Site> {
   let source = fs::read_to_string(&args.input)
     .with_context(|| format!("reading {}", args.input.display()))?;
 
@@ -170,9 +254,9 @@ fn build(
     .unwrap_or_default();
   let deps = deps::build(&front.dependencies, &deck_dir)
     .with_context(|| format!("in {}", args.input.display()))?;
-  if !deps.is_empty() && args.serve.is_none() {
+  if !deps.is_empty() && target.is_dist() {
     eprintln!(
-      "warning: {}: without --serve, Run posts to the Rust playground, which \
+      "warning: {}: a --dist deck's Run posts to the Rust playground, which \
        has only its own selection of crates, not the deck's dependencies",
       args.input.display()
     );
@@ -209,9 +293,9 @@ fn build(
       // says `notation`.
       problems.extend(origins::check(&programs, &file, &deps));
     }
-    Err(e) => problems.push(overlay::Problem::general(
-      &e.context(format!("in {file}")),
-    )),
+    Err(e) => {
+      problems.push(overlay::Problem::general(&e.context(format!("in {file}"))))
+    }
   }
 
   // The blocks that did render are worth keeping either way: the next build
@@ -228,44 +312,6 @@ fn build(
 
   let slides = deck::Deck::parse(&content).to_html();
 
-  let out = &args.out_dir;
-  let aquascope_dir = out.join("aquascope");
-  let assets_dir = out.join("assets");
-  fs::create_dir_all(&aquascope_dir)?;
-  fs::create_dir_all(&assets_dir)?;
-
-  fs::write(aquascope_dir.join("embed.iife.js"), EMBED_JS)?;
-  fs::write(aquascope_dir.join("style.css"), EMBED_CSS)?;
-  fs::write(aquascope_dir.join("aquascope-reveal.js"), GLUE_JS)?;
-  fs::write(aquascope_dir.join("aquascope-reveal.css"), GLUE_CSS)?;
-  fs::write(aquascope_dir.join("highlight.css"), HIGHLIGHT_CSS)?;
-
-  // Either vendor reveal.js next to the deck or point at a CDN.
-  let (reveal, plugin) = match &args.reveal_dir {
-    Some(dir) => {
-      for sub in ["dist", "plugin"] {
-        let from = dir.join(sub);
-        anyhow::ensure!(
-          from.is_dir(),
-          "{} is not a reveal.js package: no {sub}/ directory",
-          dir.display()
-        );
-        copy_tree(&from, &out.join("reveal").join(sub))
-          .with_context(|| format!("copying {}", from.display()))?;
-      }
-      ("reveal/dist".to_string(), "reveal/plugin".to_string())
-    }
-    None => (format!("{CDN}/dist"), format!("{CDN}/plugin")),
-  };
-
-  for dir in &args.static_dirs {
-    let name = dir
-      .file_name()
-      .with_context(|| format!("{} has no directory name", dir.display()))?;
-    copy_tree(dir, &out.join(name))
-      .with_context(|| format!("copying {}", dir.display()))?;
-  }
-
   // Explicit flags win over the front matter, which wins over the defaults.
   let reveal_options = front.reveal_options_json();
   let title = args.title.clone().or(front.title).unwrap_or_else(|| {
@@ -281,75 +327,206 @@ fn build(
     .or(front.theme)
     .unwrap_or_else(|| "white".to_string());
 
-  let mut head = String::new();
-  for css in &args.extra_css {
-    let name = copy_into(css, &assets_dir)?;
-    head.push_str(&format!(
-      "  <link rel=\"stylesheet\" href=\"assets/{name}\" />\n"
-    ));
+  let mut head = vec![
+    css(&format!("{REVEAL_DST}dist/reset.css")),
+    css(&format!("{REVEAL_DST}dist/reveal.css")),
+    Include::Css {
+      path: format!("{REVEAL_DST}dist/theme/{theme}.css"),
+      id: Some("theme"),
+    },
+    css("aquascope/aquascope-reveal.css"),
+    css("aquascope/highlight.css"),
+    css("aquascope/style.css"),
+    css(&format!("{FONT_AWESOME}css/font-awesome.min.css")),
+  ];
+  for path in &args.extra_css {
+    head.push(css(&format!("assets/{}", file_name(path)?)));
   }
 
-  let mut tail = String::new();
-  for js in &args.extra_js {
-    let name = copy_into(js, &assets_dir)?;
-    tail.push_str(&format!("  <script src=\"assets/{name}\"></script>\n"));
+  // Only the grammars the deck's fences name; none, and no highlighting at
+  // all, for a deck whose code is all ```aquascope and ```origins blocks.
+  let grammars = grammars(&slides, &args.input);
+  let mut tail = vec![
+    Include::Js(format!("{REVEAL_DST}dist/reveal.js")),
+    Include::Js(format!("{REVEAL_DST}plugin/notes/notes.js")),
+    Include::InlineJs(format!(
+      "window.AQUASCOPE_REVEAL_OPTIONS = {reveal_options};"
+    )),
+  ];
+  if !grammars.is_empty() {
+    tail.push(Include::Js(format!("{HLJS_DST}core.min.js")));
+    for grammar in &grammars {
+      tail.push(Include::Js(format!("{HLJS_DST}{grammar}")));
+    }
+    tail.push(Include::Js("aquascope/reveal-highlight.js".to_string()));
   }
-
-  // The Run button posts to the Rust playground unless told otherwise. While
-  // serving we can answer it ourselves, from the same origin -- so a deck
-  // built to be hosted elsewhere keeps the playground, and one being presented
-  // off a laptop needs no network. See `serve::post`.
-  let run_url = match args.serve {
-    Some(_) => format!(
-      "  <script>window.AQUASCOPE_RUN_URL = \"{}\"; \
-       window.AQUASCOPE_RUN_STREAM_URL = \"{}\";</script>\n",
+  // The Run button posts to the Rust playground unless told otherwise. A
+  // served deck answers it itself, from the same origin, against the deck's
+  // dependencies and with no network.
+  if let Target::Dev { .. } = target {
+    tail.push(Include::InlineJs(format!(
+      "window.AQUASCOPE_RUN_URL = \"{}\"; window.AQUASCOPE_RUN_STREAM_URL = \"{}\";",
       serve::RUN_ENDPOINT,
       serve::STREAM_ENDPOINT
-    ),
-    None => String::new(),
-  };
-
+    )));
+  }
+  tail.push(Include::Embed("aquascope/embed.iife.js".to_string()));
+  tail.push(Include::Js("aquascope/aquascope-reveal.js".to_string()));
+  for path in &args.extra_js {
+    tail.push(Include::Js(format!("assets/{}", file_name(path)?)));
+  }
   // livereload.js and the stamp it polls are written by `overlay::publish`,
   // after this build's outcome is known.
-  if args.watch {
-    tail.push_str("  <script src=\"aquascope/livereload.js\"></script>\n");
+  if let Target::Dev { watch: true, .. } = target {
+    tail.push(Include::Js("aquascope/livereload.js".to_string()));
   }
 
-  let html = format!(
-    r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{title}</title>
-  <link rel="stylesheet" href="{reveal}/reset.css" />
-  <link rel="stylesheet" href="{reveal}/reveal.css" />
-  <link rel="stylesheet" href="{reveal}/theme/{theme}.css" id="theme" />
-  <link rel="stylesheet" href="aquascope/aquascope-reveal.css" />
-  <link rel="stylesheet" href="aquascope/highlight.css" />
-  <link rel="stylesheet" href="aquascope/style.css" />
-{head}</head>
-<body>
-  <div class="reveal">
-    <div class="slides">
-{slides}    </div>
-  </div>
-  <script src="{reveal}/reveal.js"></script>
-  <script src="{plugin}/highlight/highlight.js"></script>
-  <script src="{plugin}/notes/notes.js"></script>
-  <script>window.AQUASCOPE_REVEAL_OPTIONS = {reveal_options};</script>
-{run_url}  <script src="aquascope/aquascope-reveal.js"></script>
-{tail}</body>
-</html>
-"#,
-    title = escape(&title),
+  let mut site = Site::new(Page {
+    title: escape(&title),
+    head,
+    body: format!(
+      "  <div class=\"reveal\">\n    <div class=\"slides\">\n{slides}    </div>\n  </div>\n"
+    ),
+    tail,
+  });
+
+  site.add("aquascope/embed.iife.js", EMBED_JS);
+  site.add("aquascope/style.css", EMBED_CSS);
+  site.add("aquascope/aquascope-reveal.js", GLUE_JS);
+  site.add("aquascope/aquascope-reveal.css", GLUE_CSS);
+  site.add("aquascope/highlight.css", HIGHLIGHT_CSS);
+  if !grammars.is_empty() {
+    site.add("aquascope/reveal-highlight.js", HIGHLIGHT_JS);
+    site.add(
+      format!("{HLJS_DST}core.min.js"),
+      vendor(&format!("{HLJS_SRC}core.min.js")),
+    );
+    for grammar in &grammars {
+      site.add(
+        format!("{HLJS_DST}{grammar}"),
+        vendor(&format!("{HLJS_SRC}{grammar}")),
+      );
+    }
+  }
+
+  // reveal.js with the one theme the deck uses, and every font a theme may
+  // import; a single file inlines only those its theme does.
+  let themes: Vec<&str> = VENDOR
+    .iter()
+    .filter_map(|(path, _)| {
+      path
+        .strip_prefix(REVEAL_SRC)?
+        .strip_prefix("dist/theme/")?
+        .strip_suffix(".css")
+        .filter(|name| !name.contains('/'))
+    })
+    .collect();
+  anyhow::ensure!(
+    themes.contains(&theme.as_str()),
+    "no reveal.js theme `{theme}`; the themes are {}",
+    themes.join(", ")
   );
+  for (path, bytes) in VENDOR {
+    let Some(rel) = path.strip_prefix(REVEAL_SRC) else {
+      continue;
+    };
+    let other_theme = rel.strip_prefix("dist/theme/").is_some_and(|t| {
+      !t.contains('/') && t.ends_with(".css") && t != format!("{theme}.css")
+    });
+    if !other_theme {
+      site.add(format!("{REVEAL_DST}{rel}"), *bytes);
+    }
+  }
+  for (path, bytes) in VENDOR {
+    if path.starts_with(FONT_AWESOME) {
+      site.add(*path, *bytes);
+    }
+  }
+  site.add("img/ferris/does_not_compile.svg", CRAB);
 
-  let index = out.join("index.html");
-  fs::write(&index, html)?;
-  println!("Wrote {}", index.display());
+  for path in &args.extra_css {
+    site.add(format!("assets/{}", file_name(path)?), read(path)?);
+  }
+  for path in &args.extra_js {
+    site.add(format!("assets/{}", file_name(path)?), read(path)?);
+  }
+  // Last, so a deck's own file wins over one of ours at the same path -- its
+  // own `img/ferris/` crab, say.
+  for dir in &args.static_dirs {
+    let name = file_name(dir)?;
+    site.add_tree(&name, dir)?;
+  }
 
-  Ok(())
+  Ok(site)
+}
+
+/// The highlight.js grammars, as paths under [`HLJS_SRC`], for the languages
+/// the fences in `slides` name, by name or alias. One with no grammar is
+/// warned about and left plain.
+fn grammars(slides: &str, input: &Path) -> Vec<String> {
+  let named: BTreeSet<&str> = slides
+    .split("<code class=\"language-")
+    .skip(1)
+    .filter_map(|rest| rest.split(['"', ' ']).next())
+    .collect();
+  // Every name a grammar answers to, with its path: its file's, and the
+  // aliases its minified source lists as `aliases:["cc","c++",...]`.
+  let mut languages: Vec<(&str, &str)> = Vec::new();
+  for (path, bytes) in VENDOR {
+    let Some(rel) = path.strip_prefix(HLJS_SRC) else {
+      continue;
+    };
+    let Some(name) = rel
+      .strip_prefix("languages/")
+      .and_then(|name| name.strip_suffix(".min.js"))
+    else {
+      continue;
+    };
+    languages.push((name, rel));
+    let text = std::str::from_utf8(bytes).unwrap_or_default();
+    for list in text.split("aliases:[").skip(1) {
+      let list = &list[.. list.find(']').unwrap_or(0)];
+      for alias in list.split(',') {
+        languages.push((alias.trim_matches('"'), rel));
+      }
+    }
+  }
+  let mut grammars = BTreeSet::new();
+  for language in named {
+    match languages
+      .iter()
+      .find(|(alias, _)| alias.eq_ignore_ascii_case(language))
+    {
+      Some((_, rel)) => {
+        grammars.insert(rel.to_string());
+      }
+      None => eprintln!(
+        "warning: {}: no highlight.js grammar for ```{language}, so its blocks \
+         are left plain",
+        input.display()
+      ),
+    }
+  }
+  grammars.into_iter().collect()
+}
+
+fn css(path: &str) -> Include {
+  Include::Css {
+    path: path.to_string(),
+    id: None,
+  }
+}
+
+fn read(path: &Path) -> Result<Vec<u8>> {
+  fs::read(path).with_context(|| format!("reading {}", path.display()))
+}
+
+fn vendor(path: &str) -> &'static [u8] {
+  VENDOR
+    .iter()
+    .find(|(p, _)| *p == path)
+    .map(|(_, bytes)| *bytes)
+    .unwrap_or_else(|| panic!("{path} is not vendored"))
 }
 
 /// Explains an ```aquascope block Aquascope could not render.
@@ -381,11 +558,18 @@ fn aquascope_problem(
   }
 }
 
-/// Prints a failed build and hands its problems to the open page.
-fn report(args: &Args, result: Result<()>) -> Result<()> {
+/// Writes a development build, or prints a failed one and hands its
+/// problems to the open page.
+fn report(dir: &Path, result: Result<Site>) -> Result<()> {
   let general;
   let problems = match &result {
-    Ok(()) => Vec::new(),
+    Ok(site) => {
+      for broken in site.broken_refs() {
+        eprintln!("warning: {broken}");
+      }
+      site::write_dir(site, dir)?;
+      Vec::new()
+    }
     Err(e) => {
       eprintln!("Build failed: {e:#}");
       let problems = overlay::problems_of(e);
@@ -397,7 +581,7 @@ fn report(args: &Args, result: Result<()>) -> Result<()> {
       }
     }
   };
-  overlay::publish(&args.out_dir, &problems)
+  overlay::publish(dir, &problems)
 }
 
 /// Every file a rebuild depends on: the deck itself, the linked assets, and
@@ -441,27 +625,53 @@ fn fingerprint(args: &Args) -> Vec<(PathBuf, Option<SystemTime>)> {
 
 fn main() -> Result<()> {
   let args = Args::parse();
+  let target = Target::of(&args)?;
   let mut preprocessor = AquascopePreprocessor::new()?;
   let deps = deps::Shared::default();
 
+  let (dir, port, watch) = match &target {
+    Target::DistDir(dir) => {
+      let site = build(&args, &target, &mut preprocessor, &deps)?;
+      site::dist_dir(&site, dir)?;
+      println!("Wrote {}", dir.display());
+      return Ok(());
+    }
+    Target::DistSingle(file) => {
+      let site = build(&args, &target, &mut preprocessor, &deps)?;
+      let size = site::dist_single(&site, file)?;
+      println!(
+        "Wrote {} ({:.1} MB)",
+        file.display(),
+        size as f64 / (1 << 20) as f64
+      );
+      return Ok(());
+    }
+    Target::Dev { dir, port, watch } => (dir.clone(), *port, *watch),
+  };
+
+  // Afresh each run, so nothing an earlier one wrote -- a dropped --static
+  // directory, a stale error page -- is served.
+  let _ = fs::remove_dir_all(&dir);
+  fs::create_dir_all(&dir)
+    .with_context(|| format!("creating {}", dir.display()))?;
+
   // Without --watch a failed build is fatal. With it, even the first failure
   // only prints and goes to the overlay, and the watcher keeps running.
-  let result = build(&args, &mut preprocessor, &deps);
-  if args.watch {
-    report(&args, result)?;
+  let result = build(&args, &target, &mut preprocessor, &deps);
+  if watch {
+    report(&dir, result)?;
   } else {
-    result?;
-  }
-
-  if let Some(port) = args.serve {
-    serve::spawn(args.out_dir.clone(), port, deps.clone())?;
-  }
-
-  if !args.watch {
-    // Serving without watching still has to stay alive.
-    if args.serve.is_some() {
-      thread::park();
+    let site = result?;
+    for broken in site.broken_refs() {
+      eprintln!("warning: {broken}");
     }
+    site::write_dir(&site, &dir)?;
+  }
+
+  serve::spawn(dir.clone(), port, deps.clone())?;
+
+  if !watch {
+    thread::park();
     return Ok(());
   }
 
@@ -475,8 +685,8 @@ fn main() -> Result<()> {
     }
     last = current;
 
-    let result = build(&args, &mut preprocessor, &deps);
-    if let Err(e) = report(&args, result) {
+    let result = build(&args, &target, &mut preprocessor, &deps);
+    if let Err(e) = report(&dir, result) {
       eprintln!("Could not report the build: {e:#}");
     }
   }
