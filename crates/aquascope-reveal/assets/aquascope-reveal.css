@@ -754,3 +754,207 @@
   white-space: pre-wrap;
   color: var(--fg);
 }
+
+/* A small dot on the editor button while its block has edits the slide does
+ * not show, so a presenter knows Reset is waiting there. Shown without
+ * hovering: it is the one thing about the block that is not on the slide. */
+.reveal .origins-block .origins-edit {
+  position: relative;
+}
+
+.reveal .origins-block .origins-edit.edited {
+  opacity: 1;
+}
+
+.reveal .origins-block .origins-edit.edited::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--aq-editor-edited, #e8a33d);
+}
+
+/* The editor modal: a block's whole program, editable and runnable. Under the
+ * output modal, which can be opened from the output inside it.
+ *
+ * Unlike that modal it is sized by the viewport, not by its contents: the
+ * code grows as it is edited, and a panel resizing under the cursor would be
+ * hard to type into. */
+.aq-editor-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+/* `--aq-editor-font-size` is the deck's to set, like `--aq-output-font-size`;
+ * `--aq-editor-scale` is Ctrl/Cmd +/- while presenting. */
+.aq-editor-modal-panel {
+  --aq-editor-size: calc(
+    var(--aq-editor-font-size, 32px) * var(--aq-editor-scale, 1)
+  );
+  display: flex;
+  flex-direction: column;
+  width: 92vw;
+  height: 90vh;
+  background: var(--code-bg);
+  border: 1px solid var(--theme-popup-border);
+  border-radius: 6px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+  color: var(--fg);
+  overflow: hidden;
+}
+
+.aq-editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--theme-popup-border);
+  font-family: system-ui, sans-serif;
+  font-size: 18px;
+}
+
+.aq-editor-spacer {
+  flex: 1;
+}
+
+.aq-editor-button {
+  font: inherit;
+  padding: var(--aq-button-padding);
+  min-width: var(--aq-button-min-width);
+  background-color: var(--aq-button-background);
+  color: var(--aq-button-text);
+  border: 1px solid var(--aq-button-border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: 100ms;
+  transition-property: color, border-color, background-color;
+}
+
+.aq-editor-button:hover {
+  background-color: var(--aq-button-background-hover);
+  color: var(--aq-button-text-hover);
+  border-color: var(--aq-button-border-hover);
+}
+
+.aq-editor-vim {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Grey while vim is off, in its colours while it is on, so the state reads
+ * at a glance from the back of the room too. */
+.aq-editor-vim-icon {
+  width: 1.1em;
+  height: 1.1em;
+  filter: grayscale(1);
+  opacity: 0.6;
+  transition: filter 100ms, opacity 100ms;
+}
+
+.aq-editor-vim[aria-pressed="true"] .aq-editor-vim-icon {
+  filter: none;
+  opacity: 1;
+}
+
+/* The vim toggle while it is on: the hover colours, kept. */
+.aq-editor-button[aria-pressed="true"] {
+  background-color: var(--aq-button-background-hover);
+  color: var(--aq-button-text-hover);
+  border-color: var(--aq-button-border-hover);
+}
+
+/* The code takes whatever the output leaves it, and scrolls on its own. */
+.aq-editor-code {
+  flex: 1;
+  min-height: 0;
+}
+
+.aq-editor-code .cm-editor {
+  height: 100%;
+  font-size: var(--aq-editor-size);
+}
+
+.aq-editor-code .cm-editor.cm-focused {
+  outline: none;
+}
+
+.aq-editor-code .cm-scroller {
+  font-family: "Source Code Pro", Consolas, "Ubuntu Mono", Menlo,
+    "DejaVu Sans Mono", monospace, monospace;
+  line-height: 1.4;
+}
+
+.aq-editor-code .cm-content {
+  padding: 8px 0;
+}
+
+.aq-editor-code .cm-gutters {
+  background: transparent;
+  border-right: 1px solid var(--theme-popup-border);
+  color: var(--aq-button-text);
+}
+
+/* The output, under the code once there is any, and never more than half the
+ * panel. The rules `.reveal .result-container` gets on a slide do not reach
+ * outside `.reveal`, so the ones that matter are restated. */
+.aq-editor-modal .result-container {
+  position: relative;
+  flex: none;
+  max-height: 45%;
+  overflow: auto;
+}
+
+.aq-editor-modal .result-container:not(:empty) {
+  border-top: 1px solid var(--theme-popup-border);
+}
+
+.aq-editor-modal .result-container pre {
+  margin: 0;
+  padding: 12px 16px;
+}
+
+.aq-editor-modal .result-container pre > .result {
+  display: block;
+  font-family: "Source Code Pro", Consolas, "Ubuntu Mono", Menlo,
+    "DejaVu Sans Mono", monospace, monospace;
+  font-size: calc(var(--aq-editor-size) * 0.75);
+  line-height: 1.3;
+  white-space: pre-wrap;
+  background: none;
+}
+
+.aq-editor-modal .result-container b {
+  font-weight: 600;
+}
+
+.aq-editor-modal .result-container .top-right {
+  position: absolute;
+  z-index: 1;
+  top: 8px;
+  right: 12px;
+}
+
+/* Always shown: there is no slide to hover here, and the modal is where the
+ * presenter is looking. */
+.aq-editor-modal .result-container .cm-button {
+  position: static;
+  opacity: 1;
+  margin: 0 3px;
+  font-size: var(--aq-button-font-size);
+  padding: var(--aq-button-padding);
+  min-width: var(--aq-button-min-width);
+  background-color: var(--aq-button-background);
+  color: var(--aq-button-text);
+  border: 1px solid var(--aq-button-border);
+  border-radius: 4px;
+  cursor: pointer;
+}

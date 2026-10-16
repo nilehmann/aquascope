@@ -24,3 +24,4 @@ debug/
 # Nix things
 .direnv/
 .envrc
+.pnpm-store/

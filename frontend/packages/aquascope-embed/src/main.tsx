@@ -5,6 +5,7 @@ import { faArrowsRotate } from "@fortawesome/free-solid-svg-icons";
 import React, { useContext, useLayoutEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
 
+import "./code-editor";
 import { setup } from "./setup";
 import "./styles.scss";
 

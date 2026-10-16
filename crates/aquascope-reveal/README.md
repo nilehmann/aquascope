@@ -253,6 +253,34 @@ playground, which only answers once the program has finished, and the
 editor's Run button in ```` ```aquascope ```` blocks does the same either
 way.
 
+### The editor
+
+Every compiled block -- plain, `run` or `shouldFail`, anything but
+`notation` -- has an ✎ button beside its Run button. It opens the block's
+program in an editor over the slide, to be changed and run in front of the
+room. The editor holds the program as it is compiled, not the text on the
+slide: hidden lines are shown, markers are gone and `'!a` reads `'_`, so
+what is in it is Rust that runs as it stands.
+
+| control | does |
+| --- | --- |
+| **▶ Run** | compiles and runs the code in the editor, the way the block's Run button does, with the output under the code |
+| **Reset** | puts back the program the block was built with |
+| **vim** | toggles vim keybindings, remembered by the browser for the next deck |
+| **✕**, a click outside, Escape | closes it; with vim on, Escape is vim's and `:q` closes |
+| Ctrl/Cmd `+` `-` `0` | makes the code and output larger, smaller, and back, until the page reloads |
+
+The slide never changes: its boxes and steps are what was written. The
+edits are kept for the block until the page reloads, so closing the editor
+by accident loses nothing, and the ✎ carries a dot while they differ from
+the slide's program. `shouldFail` blocks run like any other, so the error can
+be shown and then fixed live.
+
+The program is on the block, in `data-program`. The editor is the embed
+bundle's CodeMirror, so the first one opened loads the bundle if no
+```` ```aquascope ```` block on an earlier slide has. `--aq-editor-font-size`
+sets its size (default `32px`), and the dot is `--aq-editor-edited`.
+
 ### External crates
 
 `dependencies` in the front matter lists crates the blocks may use, each

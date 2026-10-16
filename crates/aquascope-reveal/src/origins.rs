@@ -1064,15 +1064,18 @@ pub fn render(
   };
 
   // The program is not what is on the slide -- hidden lines are missing from
-  // it and the markers are still in it -- so a runnable block carries its own
-  // source. Newlines are escaped along with everything else: an attribute
-  // spanning lines would put a blank line inside the raw-HTML block, which is
-  // the one thing that breaks it.
-  let run = if opts.run {
-    format!(" data-run-code=\"{}\"", attribute(&program(&all)))
-  } else {
-    String::new()
-  };
+  // it and the markers are still in it -- so every block that is one carries
+  // its own source, for the editor modal to open and for Run. Newlines are
+  // escaped along with everything else: an attribute spanning lines would put
+  // a blank line inside the raw-HTML block, which is the one thing that
+  // breaks it.
+  let mut run = String::new();
+  if !opts.notation {
+    run.push_str(&format!(" data-program=\"{}\"", attribute(&program(&all))));
+  }
+  if opts.run {
+    run.push_str(" data-run");
+  }
 
   // Floating notes are the same markup as the strip, laid out differently:
   // aquascope-reveal.js places the card shown beside what is lit.
@@ -1339,6 +1342,16 @@ mod test {
     reps.into_iter().next().unwrap().1
   }
 
+  /// [`one`] without the program it carries: what the slide shows.
+  fn shown(md: &str) -> String {
+    let html = one(md);
+    let Some(start) = html.find(" data-program=\"") else {
+      return html;
+    };
+    let len = html[start + 15 ..].find('"').unwrap() + 16;
+    format!("{}{}", &html[.. start], &html[start + len ..])
+  }
+
   #[test]
   fn type_markers_carry_the_compilers_type() {
     let html = typed("```origins\nlet x = [[^:*[[^:b:]]:]] + 1;\n```\n", &[
@@ -1467,12 +1480,12 @@ mod test {
   #[test]
   fn a_sigil_is_sugar_for_the_bracket_form() {
     assert_eq!(
-      one("```origins\nlet r: &'!a str = x;\n```\n"),
-      one("```origins\nlet r: &[[a:'a:]] str = x;\n```\n")
+      shown("```origins\nlet r: &'!a str = x;\n```\n"),
+      shown("```origins\nlet r: &[[a:'a:]] str = x;\n```\n")
     );
     assert_eq!(
-      one("```origins\nlet r: &'?a str = x;\n```\n"),
-      one("```origins\nlet r: &[[?:'a:]] str = x;\n```\n")
+      shown("```origins\nlet r: &'?a str = x;\n```\n"),
+      shown("```origins\nlet r: &[[?:'a:]] str = x;\n```\n")
     );
   }
 
@@ -1649,7 +1662,7 @@ mod test {
   #[test]
   fn a_hidden_line_is_compiled_but_not_shown() {
     let md = "```origins\n# fn main() {\nlet a = 1;\n# }\n```\n";
-    let html = one(md);
+    let html = shown(md);
     assert!(!html.contains("main"), "{html}");
     assert!(
       html.contains("<span class=\"hljs-number\">1</span>"),
@@ -1677,18 +1690,25 @@ mod test {
   }
 
   #[test]
-  fn run_carries_the_program_in_an_attribute() {
+  fn the_block_carries_the_program_in_an_attribute() {
     let html =
       one("```origins,run\n# fn main() {\nlet r: &'!a i32 = &1;\n# }\n```\n");
     // Newlines escaped too: an attribute spanning lines would put a blank
     // line inside the raw-HTML block.
     assert!(
       html.contains(
-        r#"data-run-code="fn main() {&#10;let r: &amp;'_ i32 = &amp;1;&#10;}""#
+        r#"data-program="fn main() {&#10;let r: &amp;'_ i32 = &amp;1;&#10;}" data-run>"#
       ),
       "{html}"
     );
     assert!(!html.contains('\n'), "{html:?}");
+    // Every compiled block has it, for the editor modal; only `run` asks for
+    // the button.
+    let html = one("```origins\nfn main() {}\n```\n");
+    assert!(html.contains(r#"data-program="fn main() {}">"#), "{html}");
+    assert!(!html.contains("data-run"), "{html}");
+    let html = one("```origins,notation\nfn f() -> &'a str\n```\n");
+    assert!(!html.contains("data-program"), "{html}");
   }
 
   #[test]
@@ -1697,12 +1717,14 @@ mod test {
     // In the wrapper, before the `pre`: `.hljs` makes the `pre` a scroll box
     // that would clip it and swallow its clicks.
     assert!(
-      html.starts_with(
-        r#"<div class="origins-block"><div class="ferris-container">"#
-      ),
+      html.starts_with(r#"<div class="origins-block" data-program="#),
       "{html}"
     );
-    assert!(!html.contains("data-run-code"), "{html}");
+    assert!(
+      html.contains(r#""><div class="ferris-container">"#),
+      "{html}"
+    );
+    assert!(!html.contains("data-run"), "{html}");
     assert!(
       programs("```origins,shouldFail\nlet a = 1;\n```\n")[0].should_fail
     );

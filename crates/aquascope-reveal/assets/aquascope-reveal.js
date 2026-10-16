@@ -140,7 +140,7 @@
   //
   // Those blocks are baked HTML rather than an editor, so nothing renders a
   // Run button for them and there is no CodeMirror document to read. The
-  // program is on the element instead, in `data-run-code`: it is not what the
+  // program is on the element instead, in `data-program`: it is not what the
   // slide shows, since hidden lines are missing from the slide and the origin
   // markers are not Rust.
   //
@@ -149,7 +149,7 @@
   // every style for the result box apply here without knowing the difference.
   var DEFAULT_RUN_URL = "https://play.rust-lang.org/evaluate.json";
 
-  function runOrigins(block, result) {
+  function runOrigins(program, result) {
     // A run still streaming into this block is abandoned, and the server,
     // seeing the connection go, stops its program.
     if (result.aqAbort) {
@@ -174,7 +174,7 @@
       body: JSON.stringify({
         version: "stable",
         optimize: "0",
-        code: block.getAttribute("data-run-code"),
+        code: program,
         edition: "2021"
       })
     };
@@ -269,37 +269,243 @@
   // it a scroll box that clips absolutely-positioned children and eats the
   // part of a button that hangs past its edge -- and not as a sibling of the
   // block, which would put the output outside the border.
-  function addRunButtons(slide) {
-    var blocks = slide.querySelectorAll(".origins-block[data-run-code]");
+  //
+  // Every compiled block gets the editor button; `run` adds the Run button.
+  function addBlockControls(slide) {
+    var blocks = slide.querySelectorAll(".origins-block[data-program]");
     for (var i = 0; i < blocks.length; i++) {
       var block = blocks[i];
-      if (block.dataset.runReady) {
+      if (block.dataset.controlsReady) {
         continue;
       }
-      block.dataset.runReady = "1";
-
-      var result = document.createElement("div");
-      result.className = "result-container";
-      block.appendChild(result);
-
-      var button = document.createElement("button");
-      button.type = "button";
-      button.className = "cm-button origins-run";
-      button.title = "Compile and run";
-      button.textContent = "▶";
-      button.addEventListener(
-        "click",
-        (function (block, result) {
-          return function () {
-            runOrigins(block, result);
-          };
-        })(block, result)
-      );
+      block.dataset.controlsReady = "1";
 
       var controls = document.createElement("div");
       controls.className = "top-right";
-      controls.appendChild(button);
+
+      var edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "cm-button origins-edit";
+      edit.title = "Open in editor";
+      edit.textContent = "✎";
+      edit.addEventListener(
+        "click",
+        (function (block, edit) {
+          return function () {
+            openEditor(block, edit);
+          };
+        })(block, edit)
+      );
+      controls.appendChild(edit);
+
+      if (block.hasAttribute("data-run")) {
+        var result = document.createElement("div");
+        result.className = "result-container";
+        block.appendChild(result);
+
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "cm-button origins-run";
+        button.title = "Compile and run";
+        button.textContent = "▶";
+        button.addEventListener(
+          "click",
+          (function (block, result) {
+            return function () {
+              runOrigins(block.getAttribute("data-program"), result);
+            };
+          })(block, result)
+        );
+        controls.appendChild(button);
+      }
+
       block.appendChild(controls);
+    }
+  }
+
+  // The editor modal: a block's whole program in a CodeMirror editor, to be
+  // changed and run in front of the room. The slide is never touched -- its
+  // boxes and steps are what was authored -- so the edits live on the block
+  // element, in `aqEdits`, until the page reloads; the editor button carries
+  // `edited` while they differ from the program. Reset goes back to it.
+  //
+  // The editor is the embed bundle's, so opening one loads the bundle if no
+  // ```aquascope block has yet.
+  var VIM_KEY = "aquascope-reveal.vim";
+  var EDITOR_FONT_STEP = 0.1;
+  var editor = null;
+  // Ctrl/Cmd + and -, shared by every modal and forgotten on reload.
+  var editorScale = 1;
+
+  function vimPreferred() {
+    try {
+      return window.localStorage.getItem(VIM_KEY) === "1";
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function preferVim(on) {
+    try {
+      window.localStorage.setItem(VIM_KEY, on ? "1" : "0");
+    } catch (e) {
+      // Private window or blocked storage: the toggle still works, unsaved.
+    }
+  }
+
+  function toolbarButton(text, title, onClick) {
+    var button = document.createElement("button");
+    button.type = "button";
+    button.className = "aq-editor-button";
+    button.title = title;
+    button.textContent = text;
+    button.addEventListener("click", onClick);
+    return button;
+  }
+
+  function openEditor(block, opener) {
+    closeEditor();
+    loadEmbed().then(function () {
+      showEditor(block, opener);
+    }, console.error);
+  }
+
+  function showEditor(block, opener) {
+    var program = block.getAttribute("data-program");
+    var vimOn = vimPreferred();
+
+    var root = document.createElement("div");
+    root.className = "aq-editor-modal";
+    var panel = document.createElement("div");
+    panel.className = "aq-editor-modal-panel";
+    panel.style.setProperty("--aq-editor-scale", editorScale);
+
+    var toolbar = document.createElement("div");
+    toolbar.className = "aq-editor-toolbar";
+
+    var spacer = document.createElement("div");
+    spacer.className = "aq-editor-spacer";
+
+    var code = document.createElement("div");
+    code.className = "aq-editor-code";
+
+    // The same DOM as the Run output on a slide, so `runOrigins` fills it and
+    // the expand button is added to it the same way.
+    var result = document.createElement("div");
+    result.className = "result-container";
+
+    var reset = toolbarButton("Reset", "Back to the code on the slide", function () {
+      cm.setCode(program);
+      cm.focus();
+    });
+    var run = toolbarButton("▶ Run", "Compile and run", function () {
+      runOrigins(cm.getCode(), result);
+    });
+    run.classList.add("aq-editor-run");
+    var close = toolbarButton("✕", "Close", closeEditor);
+
+    // A toggle, pressed while vim is on.
+    var vimToggle = toolbarButton("vim", "Vim keybindings", function () {
+      vimOn = !vimOn;
+      vimToggle.setAttribute("aria-pressed", String(vimOn));
+      preferVim(vimOn);
+      cm.setVim(vimOn);
+      cm.focus();
+    });
+    vimToggle.classList.add("aq-editor-vim");
+    // Vim's logo, reduced to its shape: a green diamond holding a V. Inline,
+    // since Font Awesome has no Vim icon and the deck ships no images.
+    vimToggle.insertAdjacentHTML(
+      "afterbegin",
+      '<svg class="aq-editor-vim-icon" viewBox="0 0 24 24" aria-hidden="true">' +
+        '<polygon points="12,1 23,12 12,23 1,12" fill="#019833" stroke="#0b4d1d" stroke-width="1.2"/>' +
+        '<path d="M6.5 7h3.4l2.1 6.2L14.1 7h3.4l-4 10.5h-3z" fill="#fff"/>' +
+        "</svg>"
+    );
+    vimToggle.setAttribute("aria-pressed", String(vimOn));
+
+    toolbar.appendChild(spacer);
+    toolbar.appendChild(vimToggle);
+    toolbar.appendChild(reset);
+    toolbar.appendChild(run);
+    toolbar.appendChild(close);
+    panel.appendChild(toolbar);
+    panel.appendChild(code);
+    panel.appendChild(result);
+    root.appendChild(panel);
+    document.body.appendChild(root);
+
+    var cm = window.aquascopeCodeEditor(
+      code,
+      block.aqEdits !== undefined ? block.aqEdits : program,
+      {
+        vim: vimOn,
+        onChange: function (text) {
+          block.aqEdits = text;
+          opener.classList.toggle("edited", text !== program);
+        }
+      }
+    );
+
+    // `:q` and `:wq`, sent by the embed bundle's vim mode.
+    root.addEventListener("aquascope-editor-quit", closeEditor);
+
+    // Only a press that starts on the backdrop dismisses, so selecting code
+    // and releasing outside the panel does not close it.
+    root.addEventListener("mousedown", function (event) {
+      if (event.target === root) {
+        closeEditor();
+      }
+    });
+
+    // Bubble phase on the modal, so the editor -- and vim, which needs
+    // Escape to leave insert mode -- sees every key first, and reveal, which
+    // listens on the document, sees none of them.
+    root.addEventListener("keydown", function (event) {
+      event.stopPropagation();
+      if ((event.ctrlKey || event.metaKey) && !event.altKey) {
+        var scale = null;
+        if (event.key === "=" || event.key === "+") {
+          scale = editorScale + EDITOR_FONT_STEP;
+        } else if (event.key === "-") {
+          scale = Math.max(EDITOR_FONT_STEP * 3, editorScale - EDITOR_FONT_STEP);
+        } else if (event.key === "0") {
+          scale = 1;
+        }
+        if (scale !== null) {
+          // The browser's own zoom would rescale the slide behind it too.
+          event.preventDefault();
+          // Rounded, so a run of presses comes back to exactly 1.
+          editorScale = Math.round(scale * 10) / 10;
+          panel.style.setProperty("--aq-editor-scale", editorScale);
+        }
+        return;
+      }
+      // With vim on, Escape is vim's, and `:q` closes instead.
+      if (event.key === "Escape" && !vimOn && !event.defaultPrevented) {
+        event.preventDefault();
+        closeEditor();
+      }
+    });
+
+    editor = { root: root, cm: cm, result: result, opener: opener };
+    cm.focus();
+  }
+
+  function closeEditor() {
+    if (!editor) {
+      return;
+    }
+    var closing = editor;
+    editor = null;
+    // A run still streaming is stopped, as closing the output on a slide does.
+    if (closing.result.aqAbort) {
+      closing.result.aqAbort.abort();
+    }
+    closing.cm.destroy();
+    closing.root.parentNode.removeChild(closing.root);
+    if (closing.opener && closing.opener.focus) {
+      closing.opener.focus();
     }
   }
 
@@ -911,14 +1117,14 @@
       plugins: [RevealHighlight, RevealNotes]
     })).then(function () {
       hydrate(Reveal.getCurrentSlide());
-      addRunButtons(Reveal.getCurrentSlide());
+      addBlockControls(Reveal.getCurrentSlide());
       focusHighlights(Reveal.getCurrentSlide());
     });
 
     Reveal.on("slidechanged", function (event) {
       hideType();
       hydrate(event.currentSlide);
-      addRunButtons(event.currentSlide);
+      addBlockControls(event.currentSlide);
       focusHighlights(event.currentSlide);
     });
 
