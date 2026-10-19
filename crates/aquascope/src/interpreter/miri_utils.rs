@@ -4,7 +4,7 @@ use miri::{
 };
 use rustc_abi::{FieldIdx, FieldsShape, Size};
 use rustc_middle::{
-  mir::{Local, PlaceElem},
+  mir::{Local, PlaceElem, interpret::Pointer},
   ty::{AdtKind, FieldDef, Ty, TyKind, layout::TyAndLayout},
 };
 
@@ -47,6 +47,8 @@ where
 
 struct AddressLocator<'a, 'tcx> {
   ecx: &'a InterpCx<'tcx, miri::MiriMachine<'tcx>>,
+  /// The start of the allocation, which `offset`s and `target` are relative to.
+  base: Pointer<Option<miri::Provenance>>,
   target: u64,
   target_ty: Ty<'tcx>,
   segments: Vec<PlaceElem<'tcx>>,
@@ -78,6 +80,25 @@ impl<'tcx> AddressLocator<'_, 'tcx> {
     }
   }
 
+  /// Descends into the active variant of the enum at `offset`.
+  ///
+  /// Which fields exist at an address depends on the variant, and only the
+  /// value in memory says which variant that is. The path gets no segment for
+  /// the variant itself: an enum's `MValue` lists just the active variant's
+  /// fields, so a field index already counts within it.
+  fn locate_variant(&mut self, layout: TyAndLayout<'tcx>, offset: u64) {
+    let ptr = self.base.wrapping_offset(Size::from_bytes(offset), self.ecx);
+    let place = self.ecx.ptr_to_mplace_unaligned(ptr, layout);
+    // Memory that doesn't hold a valid discriminant leaves the path at the
+    // enum as a whole.
+    let Some(variant_idx) = self.ecx.read_discriminant(&place).discard_err()
+    else {
+      return;
+    };
+    let variant = layout.for_variant(self.ecx, variant_idx);
+    self.locate_field(variant, offset, variant.layout.fields().count());
+  }
+
   fn locate(&mut self, layout: TyAndLayout<'tcx>, offset: u64) {
     // A field at the start of its parent shares the parent's address, so the
     // address alone doesn't say which of them is being pointed at. The pointee
@@ -98,7 +119,7 @@ impl<'tcx> AddressLocator<'_, 'tcx> {
               self.locate_field(layout, offset, adt_def.all_fields().count())
             }
           },
-          AdtKind::Enum => todo!(),
+          AdtKind::Enum => self.locate_variant(layout, offset),
           _ => {}
         }
       }
@@ -150,6 +171,9 @@ pub fn locate_address_in_type<'tcx>(
   // dbg!((alloc_layout, alloc_size, mplace, target));
   let mut locator = AddressLocator {
     ecx,
+    base: mplace
+      .ptr()
+      .wrapping_signed_offset(-(target.bytes() as i64), ecx),
     target: target.bytes(),
     target_ty: mplace.layout.ty,
     segments: Vec::new(),
