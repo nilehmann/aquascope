@@ -24,7 +24,10 @@ pub struct AquascopeBlock {
 }
 
 impl AquascopeBlock {
-  fn parse(i: LocatedSpan<&str>) -> IResult<LocatedSpan<&str>, Self> {
+  fn parse<'a>(
+    i: LocatedSpan<&'a str>,
+    suffix: &str,
+  ) -> IResult<LocatedSpan<&'a str>, Self> {
     fn parse_sym(i: LocatedSpan<&str>) -> IResult<LocatedSpan<&str>, String> {
       let (i, v) = many0(none_of(",=\n+"))(i)?;
       Ok((i, v.into_iter().collect::<String>()))
@@ -45,8 +48,13 @@ impl AquascopeBlock {
     ));
     let (i, (_, operations, config, code, _)) = parser(i)?;
     let code = code.fragment().trim();
+    let code = if suffix.is_empty() {
+      code.to_string()
+    } else {
+      format!("{code}\n{}", suffix.trim_end())
+    };
     let (code, annotations) =
-      crate::annotations::parse_annotations(code).unwrap();
+      crate::annotations::parse_annotations(&code).unwrap();
     Ok((i, AquascopeBlock {
       operations,
       config,
@@ -56,10 +64,20 @@ impl AquascopeBlock {
   }
 
   pub fn parse_all(content: &str) -> Vec<(Range<usize>, Self)> {
+    Self::parse_all_with_suffix(content, "")
+  }
+
+  /// [`Self::parse_all`], with `suffix` appended to every block's code before
+  /// its annotations are parsed -- hidden lines, say, that every block of a
+  /// document shares.
+  pub fn parse_all_with_suffix(
+    content: &str,
+    suffix: &str,
+  ) -> Vec<(Range<usize>, Self)> {
     let mut content = LocatedSpan::new(content);
     let mut to_process = Vec::new();
     loop {
-      if let Ok((next, block)) = AquascopeBlock::parse(content) {
+      if let Ok((next, block)) = AquascopeBlock::parse(content, suffix) {
         let range = content.location_offset() .. next.location_offset();
         to_process.push((range, block));
         content = next;
@@ -75,6 +93,13 @@ impl AquascopeBlock {
 
     to_process
   }
+}
+
+#[test]
+fn test_parse_block_with_suffix() {
+  let inp = "```aquascope,interpreter\nfn main() {}\n```";
+  let blocks = AquascopeBlock::parse_all_with_suffix(inp, "#mod m {}\n");
+  assert_eq!(blocks[0].1.code, "fn main() {}\nmod m {}");
 }
 
 #[test]

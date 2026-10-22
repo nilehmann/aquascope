@@ -162,6 +162,15 @@
   // every style for the result box apply here without knowing the difference.
   var DEFAULT_RUN_URL = "https://play.rust-lang.org/evaluate.json";
 
+  // The deck's own modules, from its front matter, as Rust. A block's
+  // program leaves them out, so the editor shows only the block, and they go
+  // on at the end here, on the way to the compiler -- where the build-time
+  // check put them too.
+  function withModules(program) {
+    var modules = window.AQUASCOPE_MODULES;
+    return modules ? program.replace(/\s*$/, "\n") + modules : program;
+  }
+
   function runOrigins(program, result) {
     // A run still streaming into this block is abandoned, and the server,
     // seeing the connection go, stops its program.
@@ -187,7 +196,7 @@
       body: JSON.stringify({
         version: "stable",
         optimize: "0",
-        code: program,
+        code: withModules(program),
         edition: "2021"
       })
     };

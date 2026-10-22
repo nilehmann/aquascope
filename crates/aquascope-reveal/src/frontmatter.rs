@@ -17,6 +17,8 @@
 //! # First slide
 //! ```
 
+use std::collections::BTreeMap;
+
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -53,12 +55,62 @@ pub struct FrontMatter {
   /// it. See [`crate::deps`].
   #[serde(default)]
   pub dependencies: Map<String, Value>,
+  /// Rust modules every compiled block gets, by name, so that a block can
+  /// `use` what the deck defines once. See [`Self::hidden_modules`].
+  #[serde(default)]
+  pub modules: BTreeMap<String, String>,
 }
 
 impl FrontMatter {
   /// The reveal options as the JSON literal embedded in the page.
   pub fn reveal_options_json(&self) -> String {
     Value::Object(self.reveal_options.clone()).to_string()
+  }
+
+  /// The `modules` as Rust, `mod name { … }` each, every line ending in a
+  /// newline; empty when there are none. What a block's program has appended
+  /// when it is compiled or run, but not what the editor shows.
+  pub fn modules_code(&self) -> Result<String> {
+    let mut out = String::new();
+    for (name, code) in &self.modules {
+      let ident = name
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+      if !ident {
+        bail!("front matter: module name `{name}` is not a Rust identifier");
+      }
+      out.push_str(&format!("mod {name} {{\n"));
+      for line in code.lines() {
+        if line.trim().is_empty() {
+          out.push('\n');
+        } else {
+          out.push_str(&format!("    {line}\n"));
+        }
+      }
+      out.push_str("}\n");
+    }
+    Ok(out)
+  }
+
+  /// [`Self::modules_code`] as hidden lines, for the end of every
+  /// ```aquascope block. At the end, so the lines the author wrote keep their
+  /// numbers in a diagnostic.
+  pub fn hidden_modules(&self) -> Result<String> {
+    Ok(
+      self
+        .modules_code()?
+        .lines()
+        .map(|line| {
+          if line.is_empty() {
+            "#\n".to_string()
+          } else {
+            format!("# {line}\n")
+          }
+        })
+        .collect(),
+    )
   }
 }
 
@@ -145,6 +197,35 @@ mod test {
       .unwrap_err()
       .to_string();
     assert!(err.contains("disableLayout"), "{err}");
+  }
+
+  #[test]
+  fn modules_become_hidden_lines() {
+    let (front, _) = split(
+      "---\nmodules:\n  helpers: |\n    pub fn one() -> i32 {\n        1\n    }\n\n    pub struct S;\n---\n",
+    )
+    .unwrap();
+    assert_eq!(
+      front.hidden_modules().unwrap(),
+      "# mod helpers {\n#     pub fn one() -> i32 {\n#         1\n#     }\n#\n#     pub struct S;\n# }\n"
+    );
+  }
+
+  #[test]
+  fn modules_as_rust() {
+    let (front, _) =
+      split("---\nmodules:\n  helpers: |\n    pub struct S;\n\n    pub struct T;\n---\n")
+        .unwrap();
+    assert_eq!(
+      front.modules_code().unwrap(),
+      "mod helpers {\n    pub struct S;\n\n    pub struct T;\n}\n"
+    );
+  }
+
+  #[test]
+  fn a_module_name_must_be_an_identifier() {
+    let (front, _) = split("---\nmodules:\n  my-helpers: \"\"\n---\n").unwrap();
+    assert!(front.hidden_modules().is_err());
   }
 
   #[test]

@@ -205,6 +205,14 @@ fn apply(
   out
 }
 
+/// `s` as a JavaScript string literal that is safe inside a `<script>`: JSON,
+/// with `<` escaped so no `</script>` in it can end the element.
+fn script_string(s: &str) -> String {
+  serde_json::to_string(s)
+    .expect("a string serializes")
+    .replace('<', "\\u003c")
+}
+
 fn escape(s: &str) -> String {
   s.replace('&', "&amp;")
     .replace('<', "&lt;")
@@ -264,6 +272,14 @@ fn build(
   *shared_deps.write().unwrap() = deps.clone();
   preprocessor.set_dependencies(deps.aquascope());
 
+  // The deck's own modules, after every compiled block: as hidden lines in
+  // an ```aquascope block's code, and for ```origins blocks as Rust the
+  // build-time check appends and the page carries once, for Run to append.
+  let modules = front
+    .modules_code()
+    .with_context(|| format!("in {}", args.input.display()))?;
+  preprocessor.set_hidden_suffix(&front.hidden_modules()?);
+
   // Both passes return byte ranges into `body` and never overlap: one
   // claims ```aquascope fences, the other ```origins fences.
   // `body` is a suffix of `source`, so the front matter's line count is what
@@ -284,7 +300,13 @@ fn build(
     .collect();
 
   let notes = front.notes.unwrap_or_default();
-  match origins::replacements(body, first_body_line, notes, &*preprocessor) {
+  match origins::replacements(
+    body,
+    first_body_line,
+    notes,
+    &modules,
+    &*preprocessor,
+  ) {
     Ok((origin_edits, programs)) => {
       edits.extend(origin_edits);
       // Every ```origins block that claims to be code is compiled, so a typo
@@ -353,6 +375,12 @@ fn build(
       "window.AQUASCOPE_REVEAL_OPTIONS = {reveal_options};"
     )),
   ];
+  if !modules.is_empty() {
+    tail.push(Include::InlineJs(format!(
+      "window.AQUASCOPE_MODULES = {};",
+      script_string(&modules)
+    )));
+  }
   if !grammars.is_empty() {
     tail.push(Include::Js(format!("{HLJS_DST}core.min.js")));
     for grammar in &grammars {

@@ -61,6 +61,8 @@ pub struct AquascopePreprocessor {
   /// The toolchain's host triple, for building dependencies; see
   /// [`Self::run_aquascope`].
   host: String,
+  /// Lines appended to every block; see [`Self::set_hidden_suffix`].
+  suffix: String,
 }
 
 impl AquascopePreprocessor {
@@ -85,6 +87,7 @@ impl AquascopePreprocessor {
       cache,
       dependencies: None,
       host,
+      suffix: String::new(),
     })
   }
 
@@ -92,6 +95,13 @@ impl AquascopePreprocessor {
   /// project with no dependencies.
   pub fn set_dependencies(&mut self, dependencies: Option<Dependencies>) {
     self.dependencies = dependencies;
+  }
+
+  /// Sets lines appended to every later block before it is parsed: hidden
+  /// lines, `#`-prefixed, that every block of a document shares. They are
+  /// part of the code, so a block's answer is cached under them too.
+  pub fn set_hidden_suffix(&mut self, suffix: &str) {
+    self.suffix = suffix.to_string();
   }
 
   /// What a block's answer is cached under: the block itself, and the
@@ -316,7 +326,8 @@ impl AquascopePreprocessor {
     &self,
     content: &str,
   ) -> Result<Vec<(std::ops::Range<usize>, String)>> {
-    let to_process = AquascopeBlock::parse_all(content);
+    let to_process =
+      AquascopeBlock::parse_all_with_suffix(content, &self.suffix);
     to_process
       .into_par_iter()
       .map(|(range, block)| {
@@ -335,8 +346,9 @@ impl AquascopePreprocessor {
     &self,
     content: &str,
   ) -> Result<(Vec<Replacement>, Vec<BlockFailure>)> {
-    let results: Vec<_> = AquascopeBlock::parse_all(content)
-      .into_par_iter()
+    let results: Vec<_> =
+      AquascopeBlock::parse_all_with_suffix(content, &self.suffix)
+        .into_par_iter()
       .map(|(range, block)| {
         let should_fail = block.config.iter().any(|(k, _)| k == "shouldFail");
         let code = block.code.clone();

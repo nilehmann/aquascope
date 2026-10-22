@@ -910,6 +910,7 @@ pub fn render(
   opts: &Options,
   notes: &[Note],
   style: NotesStyle,
+  modules: &str,
   typer: &dyn Typer,
 ) -> Result<String> {
   // The block's last line ends in a newline that belongs to the closing fence,
@@ -934,7 +935,7 @@ pub fn render(
     }
   }
 
-  fill_types(&all, opts, &mut markers, typer)?;
+  fill_types(&with_modules(&all, modules), opts, &mut markers, typer)?;
 
   // `.oname` carries the colour and the weight, so a boxed lifetime must not
   // also carry its token class: the inner span's colour would win over the
@@ -1100,6 +1101,17 @@ pub fn render(
   ))
 }
 
+/// A block's whole program with the deck's modules after it, the way it is
+/// compiled. They go at the end, so nothing in the block moves: its lines keep
+/// their numbers in a diagnostic, and its markers their offsets.
+fn with_modules(all: &str, modules: &str) -> String {
+  if modules.is_empty() {
+    all.to_string()
+  } else {
+    format!("{all}\n{}", modules.trim_end())
+  }
+}
+
 /// Asks `typer` for the type of every `[[^:…:]]` marker among `markers`, and
 /// records it on the marker.
 ///
@@ -1160,11 +1172,15 @@ fn attribute(text: &str) -> String {
 /// is the line number `content` starts at in the file on disk, so that a
 /// diagnostic names the line the author sees rather than one shifted by the
 /// front matter `main` stripped first. `default_notes` is the deck's choice
-/// of where callouts go, which a block's `notes=` overrides.
+/// of where callouts go, which a block's `notes=` overrides. `modules` is the
+/// deck's own modules, as Rust: every block that is compiled is compiled with
+/// them after it, for it to `use`, though its `data-program` -- what the
+/// editor shows -- leaves them out, the page carrying them once instead.
 pub fn replacements(
   content: &str,
   first_line: usize,
   default_notes: NotesStyle,
+  modules: &str,
   typer: &dyn Typer,
 ) -> Result<(Vec<Replacement>, Vec<Program>)> {
   /// The backtick count of a fence line, and whatever follows it.
@@ -1247,8 +1263,11 @@ pub fn replacements(
     let opts = Options::parse(spec)
       .with_context(|| format!("in the ```origins block at line {line}"))?;
 
+    // A `notation` block is not a program and has nothing to put them in.
+    let modules = if opts.notation { "" } else { modules };
+
     let style = opts.notes.unwrap_or(default_notes);
-    let html = render(&body, &opts, &notes, style, typer)
+    let html = render(&body, &opts, &notes, style, modules, typer)
       .with_context(|| format!("in the ```origins block at line {line}"))?;
     out.push((start .. end, html));
 
@@ -1256,7 +1275,7 @@ pub fn replacements(
       let (_, all) = prepare(body.strip_suffix('\n').unwrap_or(&body))?;
       programs.push(Program {
         line,
-        code: program(&all),
+        code: program(&with_modules(&all, modules)),
         should_fail: opts.should_fail,
       });
     }
@@ -1311,7 +1330,7 @@ mod test {
     first_line: usize,
     typer: &dyn Typer,
   ) -> Result<(Vec<Replacement>, Vec<Program>)> {
-    super::replacements(content, first_line, NotesStyle::Strip, typer)
+    super::replacements(content, first_line, NotesStyle::Strip, "", typer)
   }
   use crate::types::ExprType;
 
@@ -1675,6 +1694,39 @@ mod test {
       "{html}"
     );
     assert_eq!(programs(md)[0].code, "fn main() {\nlet a = 1;\n}");
+  }
+
+  #[test]
+  fn the_decks_modules_are_compiled_but_not_shown() {
+    let md = "```origins\nuse helpers::one;\nfn main() { one(); }\n```\n";
+    let modules = "mod helpers {\n    pub fn one() {}\n}\n";
+    let (reps, programs) =
+      super::replacements(md, 1, NotesStyle::Strip, modules, &NoTypes)
+        .unwrap();
+    assert_eq!(
+      programs[0].code,
+      "use helpers::one;\nfn main() { one(); }\nmod helpers {\n    pub fn one() {}\n}"
+    );
+    // The slide has the two lines the author wrote, and no more.
+    let html = &reps[0].1;
+    let pre = &html[html.find("<pre").unwrap() ..];
+    assert_eq!(pre.matches('\n').count(), 1, "{pre}");
+    // Nor in the editor: the page carries them once, for Run to append.
+    assert!(
+      html.contains("data-program=\"use helpers::one;&#10;fn main() { one(); }\""),
+      "{html}"
+    );
+  }
+
+  #[test]
+  fn a_notation_block_gets_no_modules() {
+    let md = "```origins,notation\nfn f();\n```\n";
+    let modules = "mod helpers {\n}\n";
+    let (reps, programs) =
+      super::replacements(md, 1, NotesStyle::Strip, modules, &NoTypes)
+        .unwrap();
+    assert!(programs.is_empty());
+    assert!(!reps[0].1.contains("helpers"));
   }
 
   #[test]
@@ -2145,7 +2197,7 @@ mod test {
     let block = |spec: &str, notes: &str, deck| {
       let md =
         format!("```origins,notation{spec}\nlet a = [[=1:x:]];\n```\n{notes}");
-      super::replacements(&md, 1, deck, &NoTypes)
+      super::replacements(&md, 1, deck, "", &NoTypes)
         .unwrap()
         .0
         .remove(0)

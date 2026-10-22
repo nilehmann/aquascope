@@ -41,7 +41,8 @@ The block is recognised only when the file *starts* with `---`; anywhere else
 that line is a slide separator. `--title` and `--theme` override it.
 `notes` is where ```` ```origins ```` blocks show their
 [callouts](#callouts): `strip` (the default) or `float`. `dependencies` names
-the [external crates](#external-crates) the blocks may use.
+the [external crates](#external-crates) the blocks may use, and `modules`
+holds [code every block can import](#deck-modules).
 
 Unknown keys are an error rather than being ignored, as are options the rest of
 the pipeline depends on: `disableLayout` (Aquascope's arrows are drawn in
@@ -330,7 +331,37 @@ dependencies.
 
 [playground-crates]: https://github.com/rust-lang/rust-playground/blob/main/compiler/base/Cargo.toml
 
-### Hidden lines
+### Deck modules
+
+`modules` in the front matter defines Rust modules once for the whole deck,
+each a name and its code:
+
+````markdown
+---
+modules:
+  pin: |
+    pub enum Example {
+        Start,
+        Waiting { v: Vec<i32>, r: *const Vec<i32> },
+        Done,
+    }
+---
+````
+
+Every compiled block -- ```` ```aquascope ```` and ```` ```origins ````, but not
+`notation` -- is compiled with each one after it, `mod pin { … }`, so a block
+says `use pin::Example;` and shows nothing else of it. They go at the end so
+the lines on the slide keep their numbers in a compile error. Items a block
+imports must be `pub`, as in any module.
+
+An ```` ```origins ```` block's [editor](#the-editor) leaves them out: it
+shows the block's own program, and the page carries the modules once, in
+`window.AQUASCOPE_MODULES`, for Run to append on the way to the compiler --
+`--serve`'s or the playground's. An ```` ```aquascope ```` block gets them as
+[hidden lines](#hidden-lines) instead, and its interpreter steps into the
+module's functions like any others, so a block that calls one marks the
+steps it means to show.
+
 
 A line whose first non-blank characters are `# ` is compiled but not shown.
 This is mdBook's convention, and it is what carries the context a snippet
